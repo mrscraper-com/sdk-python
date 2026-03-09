@@ -1,7 +1,7 @@
 # MrScraper Python SDK
 ![](./mrscraper.jpeg)
 
-A clean, typed Python client for the [MrScraper](https://mrscraper.com) web-scraping API.
+A Simple Python SDK for the [MrScraper](https://mrscraper.com) web-scraping API.
 Supports **async / await** usage.
 
 ---

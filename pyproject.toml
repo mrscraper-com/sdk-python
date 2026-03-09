@@ -11,6 +11,7 @@ license = { text = "MIT" }
 requires-python = ">=3.9"
 authors = [
     { name = "Riandra Diva Auzan", url = "https://mrscraper.com" },
+    { name = "R&D Team MrScraper", url = "https://mrscraper.com" }
 ]
 keywords = ["scraping", "web scraping", "mrscraper", "api", "sdk", "unblocker", "crawling"]
 classifiers = [
