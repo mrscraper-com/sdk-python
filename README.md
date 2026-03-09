@@ -1,7 +1,7 @@
 # MrScraper Python SDK
 
 A clean, typed Python client for the [MrScraper](https://mrscraper.com) web-scraping API.
-Supports both **synchronous** and **async/await** usage.
+Supports **async/await** usage.
 
 ---
 
@@ -11,7 +11,7 @@ Supports both **synchronous** and **async/await** usage.
 pip install mrscraper-sdk
 ```
 
-Requires Python 3.10+.
+Requires Python 3.9+.
 
 ---
 
@@ -21,9 +21,9 @@ Every client is initialised with your MrScraper API token.
 Get yours at <https://app.mrscraper.com>.
 
 ```python
-from mrscraper import MrScraperClient
+from mrscraper import MrScraper
 
-client = MrScraperClient(token="atk_your_token_here")
+client = MrScraper(token="atk_your_token_here")
 ```
 
 ---
@@ -33,45 +33,49 @@ client = MrScraperClient(token="atk_your_token_here")
 ### Fetch raw HTML (stealth browser)
 
 ```python
-from mrscraper import MrScraperClient
+import asyncio
+from mrscraper import MrScraper
 
-client = MrScraperClient(token="atk_your_token_here")
+async def main():
+    client = MrScraper(token="atk_your_token_here")
 
-result = client.fetch_html(
-    "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
-    geo_code="US",
-    timeout=120,
-    block_resources=False,
-)
-print(result["data"])   # raw HTML string
+    result = await client.fetch_html(
+        "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
+        geo_code="US",
+        timeout=120,
+        block_resources=False,
+    )
+    print(result["data"])   # raw HTML string
+
+asyncio.run(main())
 ```
 
 ### Create an AI scraper
 
 ```python
-result = client.create_scraper(
+result = await client.create_scraper(
     url="https://example.com/products",
     message="Extract all product names, prices, and ratings",
     agent="listing",          # "general" | "listing" | "map"
     proxy_country="US",
 )
-scraper_id = result["data"]["id"]
+scraper_id = result["data"]["data"]["id"]
 print("Scraper ID:", scraper_id)
 ```
 
 ### Rerun a scraper on a new URL
 
 ```python
-result = client.rerun_scraper(
+result = await client.rerun_scraper(
     scraper_id=scraper_id,
     url="https://example.com/products?page=2",
 )
 ```
 
-### Bulk rerun on multiple URLs
+### Bulk rerun on multiple URLs (AI scraper)
 
 ```python
-result = client.bulk_rerun_scraper(
+result = await client.bulk_rerun_scraper(
     scraper_id=scraper_id,
     urls=[
         "https://example.com/products/item1",
@@ -84,9 +88,22 @@ result = client.bulk_rerun_scraper(
 ### Rerun a manually configured scraper
 
 ```python
-result = client.rerun_manual_scraper(
+result = await client.rerun_manual_scraper(
     scraper_id="manual_scraper_67890",
     url="https://example.com/products/new-item",
+)
+```
+
+### Bulk rerun manual scraper on multiple URLs
+
+```python
+result = await client.bulk_rerun_manual_scraper(
+    scraper_id="scraper_12345",
+    urls=[
+        "https://www.example.com/products/item1",
+        "https://www.example.com/products/item2",
+        "https://www.example.com/products/item3",
+    ],
 )
 ```
 
@@ -94,7 +111,7 @@ result = client.rerun_manual_scraper(
 
 ```python
 # All results (paginated)
-page = client.get_all_results(
+page = await client.get_all_results(
     sort_field="updatedAt",
     sort_order="DESC",
     page_size=20,
@@ -107,44 +124,17 @@ page = client.get_all_results(
 print(page["data"])
 
 # A specific result by ID
-result = client.get_result_by_id("result_12345")
+result = await client.get_result_by_id("result_12345")
 print(result["data"])
-```
-
----
-
-## Async usage
-
-All methods are available on `AsyncMrScraperClient`:
-
-```python
-import asyncio
-from mrscraper import AsyncMrScraperClient
-
-async def main():
-    client = AsyncMrScraperClient(token="atk_your_token_here")
-
-    html = await client.fetch_html("https://example.com")
-
-    scraper = await client.create_scraper(
-        url="https://example.com/products",
-        message="Extract product names and prices",
-        agent="general",
-    )
-
-    results = await client.get_all_results(page_size=50)
-    print(results["data"])
-
-asyncio.run(main())
 ```
 
 ---
 
 ## API Reference
 
-### `MrScraperClient` / `AsyncMrScraperClient`
+### `MrScraper`
 
-Both clients expose the same methods.  Async methods must be awaited.
+All methods are coroutines and must be awaited.
 
 | Method | Description |
 |--------|-------------|
@@ -152,7 +142,8 @@ Both clients expose the same methods.  Async methods must be awaited.
 | `create_scraper(url, message, *, agent, proxy_country, ...)` | Create & run an AI-powered scraper |
 | `rerun_scraper(scraper_id, url, *, max_depth, max_pages, limit, ...)` | Rerun an AI scraper on a new URL |
 | `bulk_rerun_scraper(scraper_id, urls)` | Rerun an AI scraper on multiple URLs in one batch |
-| `rerun_manual_scraper(scraper_id, url)` | Rerun a manually configured scraper |
+| `rerun_manual_scraper(scraper_id, url)` | Rerun a manually configured scraper on a single URL |
+| `bulk_rerun_manual_scraper(scraper_id, urls)` | Rerun a manual scraper on multiple URLs in one batch |
 | `get_all_results(*, sort_field, sort_order, page_size, page, search, ...)` | List all results with filtering & pagination |
 | `get_result_by_id(result_id)` | Fetch a single result by its ID |
 
@@ -164,10 +155,34 @@ All methods return a `dict` with the following keys:
 | `data` | `Any` | Parsed JSON body or raw text |
 | `headers` | `dict` | Response headers |
 
+### `bulk_rerun_manual_scraper`
+
+Reruns a manually configured scraper on multiple URLs simultaneously in a single batch operation. This is more efficient than calling `rerun_manual_scraper` multiple times, as it processes all URLs in parallel and returns consolidated results. Ideal for scraping multiple pages, products, or articles with the same extraction logic.
+
+| Argument | Description |
+|----------|-------------|
+| `scraper_id` | The ID of the manual scraper to rerun (obtained from the MrScraper dashboard). Must be a scraper created manually through the web interface, not an AI scraper. Find it at https://app.mrscraper.com |
+| `urls` | A list of target URLs to scrape (required, must contain at least one URL). Each URL will be processed independently using the scraper's extraction logic. Example: `["https://example.com/page1", "https://example.com/page2"]` |
+
+**Returns:** A dict with `status_code`, `data` (bulk job info including job ID, status, metadata; use `get_all_results` or `get_result_by_id` to fetch per-URL results), and `headers`.
+
+**Example:**
+
+```python
+result = await client.bulk_rerun_manual_scraper(
+    scraper_id="scraper_12345",
+    urls=[
+        "https://www.example.com/products/item1",
+        "https://www.example.com/products/item2",
+        "https://www.example.com/products/item3",
+    ],
+)
+```
+
 ### `create_scraper` — agent types
 
 | Agent | Best used for |
-|-------|--------------|
+|-------|---------------|
 | `"general"` | Default; handles almost any page |
 | `"listing"` | Product listings, job boards, search results |
 | `"map"` | Crawling all sub-pages / sitemaps of a site |
@@ -190,7 +205,7 @@ parameters are only meaningful when `agent="map"`.
 from mrscraper.exceptions import AuthenticationError, APIError, NetworkError
 
 try:
-    result = client.fetch_html("https://example.com")
+    result = await client.fetch_html("https://example.com")
 except AuthenticationError:
     print("Check your API token at https://app.mrscraper.com")
 except APIError as e:

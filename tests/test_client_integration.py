@@ -15,9 +15,8 @@ from datetime import datetime
 from mrscraper import MrScraper
 from mrscraper.exceptions import AuthenticationError
 
-
-
-DEBUG_DIR = "/Users/mrscraper10/Documents/mrscraper-pypi1/debug_dir"
+REAL_TOKEN = ""
+DEBUG_DIR = "/Users/mrscraper10/Documents/mrscraper-sdk/debug_dir"
 
 
 def save_result(test_name: str, result: dict):
@@ -160,3 +159,19 @@ class TestBulkRerunScraperReal:
         assert result["status_code"] == 200 or result["status_code"] == 201
         assert "data" in result
         assert "bulkResultId" in result["data"]["data"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestBulkRerunManualScraperReal:
+    async def test_bulk_rerun_manual_scraper_returns_data(self, client):
+        result = await client.bulk_rerun_manual_scraper(
+            "817dce5f-4530-415b-9317-c2f660b508d3",
+            [
+                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+                "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html",
+            ],
+        )
+        save_result("bulk_rerun_manual_scraper", result)
+        assert result["status_code"] == 200 or result["status_code"] == 201
+        assert "data" in result

@@ -2,30 +2,15 @@
 MrScraper Python SDK
 
 A clean Python client for the `MrScraper <https://mrscraper.com>`_ API.
+Supports async/await usage.
 
-Quickstart (sync)::
-
-    from mrscraper import MrScraperClient
-
-    client = MrScraperClient(token="atk_your_token_here")
-
-    # Fetch rendered HTML
-    result = client.fetch_html("https://example.com")
-    print(result["data"])
-
-    # Create an AI scraper
-    scraper = client.create_scraper(
-        "https://example.com/products",
-        "Extract all product names and prices",
-    )
-
-Quickstart (async)::
+Quickstart::
 
     import asyncio
-    from mrscraper import AsyncMrScraperClient
+    from mrscraper import MrScraper
 
     async def main():
-        client = AsyncMrScraperClient(token="atk_your_token_here")
+        client = MrScraper(token="atk_your_token_here")
         result = await client.fetch_html("https://example.com")
         print(result["data"])
 

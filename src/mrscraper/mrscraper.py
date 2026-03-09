@@ -397,6 +397,54 @@ class MrScraper:
         }
         return await self._post(endpoint, payload=payload)
 
+    async def bulk_rerun_manual_scraper(
+        self,
+        scraper_id: str,
+        urls: list[str],
+    ) -> dict[str, Any]:
+        """
+        Rerun a manually configured scraper on multiple URLs in a single batch.
+
+        More efficient than calling :meth:`rerun_manual_scraper` multiple times,
+        as all URLs are processed in parallel server-side. Ideal for scraping
+        multiple pages, products, or articles with the same extraction logic.
+
+        Args:
+            scraper_id: ID of the manual scraper (from the MrScraper dashboard).
+                        Must be a scraper created manually via the web interface,
+                        not an AI scraper. Find it at https://app.mrscraper.com.
+            urls: List of target URLs to scrape. Must contain at least one URL.
+                  Each URL is processed independently using the scraper's logic.
+                  Example: ``["https://example.com/page1", "https://example.com/page2"]``.
+
+        Returns:
+            A dict with keys ``status_code``, ``data`` (bulk job info including job ID,
+            status, metadata; use :meth:`get_all_results` or :meth:`get_result_by_id`
+            to fetch per-URL results), and ``headers``.
+
+        Raises:
+            AuthenticationError: If the API token is invalid.
+            APIError: If the API returns a non-2xx error.
+            NetworkError: If a connection or timeout error occurs.
+
+        Example::
+
+            result = await client.bulk_rerun_manual_scraper(
+                scraper_id="scraper_12345",
+                urls=[
+                    "https://www.example.com/products/item1",
+                    "https://www.example.com/products/item2",
+                    "https://www.example.com/products/item3",
+                ],
+            )
+        """
+        endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun/bulk"
+        payload: dict[str, Any] = {
+            "scraperId": scraper_id,
+            "urls": urls,
+        }
+        return await self._post(endpoint, payload=payload, timeout=600.0)
+
     async def get_all_results(
         self,
         *,
