@@ -15,7 +15,7 @@ from datetime import datetime
 from mrscraper import MrScraper
 from mrscraper.exceptions import AuthenticationError
 
-REAL_TOKEN = ""
+REAL_TOKEN = "<YOUR_REAL_TOKEN>"
 DEBUG_DIR = "/Users/mrscraper10/Documents/mrscraper-sdk/debug_dir"
 
 
