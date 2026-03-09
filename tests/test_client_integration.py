@@ -151,7 +151,7 @@ class TestGetAllResultsReal:
 @pytest.mark.asyncio
 class TestBulkRerunScraperReal:
     async def test_bulk_rerun_scraper_returns_id(self, client):
-        result = await client.bulk_rerun_scraper(
+        result = await client.bulk_rerun_ai_scraper(
             "fdce9744-570b-48a2-8017-8bcaa251eb6f",
             ["https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html"],
         )

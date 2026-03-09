@@ -75,7 +75,7 @@ result = await client.rerun_scraper(
 ### Bulk rerun on multiple URLs (AI scraper)
 
 ```python
-result = await client.bulk_rerun_scraper(
+result = await client.bulk_rerun_ai_scraper(
     scraper_id=scraper_id,
     urls=[
         "https://example.com/products/item1",
@@ -141,7 +141,7 @@ All methods are coroutines and must be awaited.
 | `fetch_html(url, *, timeout, geo_code, block_resources)` | Fetch rendered HTML via the MrScraper stealth browser |
 | `create_scraper(url, message, *, agent, proxy_country, ...)` | Create & run an AI-powered scraper |
 | `rerun_scraper(scraper_id, url, *, max_depth, max_pages, limit, ...)` | Rerun an AI scraper on a new URL |
-| `bulk_rerun_scraper(scraper_id, urls)` | Rerun an AI scraper on multiple URLs in one batch |
+| `bulk_rerun_ai_scraper(scraper_id, urls)` | Rerun an AI scraper on multiple URLs in one batch |
 | `rerun_manual_scraper(scraper_id, url)` | Rerun a manually configured scraper on a single URL |
 | `bulk_rerun_manual_scraper(scraper_id, urls)` | Rerun a manual scraper on multiple URLs in one batch |
 | `get_all_results(*, sort_field, sort_order, page_size, page, search, ...)` | List all results with filtering & pagination |

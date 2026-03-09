@@ -318,7 +318,7 @@ class MrScraper:
         }
         return await self._post(endpoint, payload=payload)
 
-    async def bulk_rerun_scraper(
+    async def bulk_rerun_ai_scraper(
         self,
         scraper_id: str,
         urls: list[str],
@@ -343,7 +343,7 @@ class MrScraper:
 
         Example::
 
-            result = await client.bulk_rerun_scraper(
+            result = await client.bulk_rerun_ai_scraper(
                 scraper_id="scraper_12345",
                 urls=[
                     "https://example.com/products/item1",
