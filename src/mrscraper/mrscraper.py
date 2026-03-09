@@ -127,10 +127,6 @@ class MrScraper:
             ) from exc
         raise APIError(str(exc), status_code=status_code) from exc
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     async def fetch_html(
         self,
         url: str,
