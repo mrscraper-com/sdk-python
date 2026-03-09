@@ -1,7 +1,8 @@
 # MrScraper Python SDK
+![](./mrscraper.jpeg)
 
 A clean, typed Python client for the [MrScraper](https://mrscraper.com) web-scraping API.
-Supports **async/await** usage.
+Supports **async / await** usage.
 
 ---
 
@@ -23,7 +24,7 @@ Get yours at <https://app.mrscraper.com>.
 ```python
 from mrscraper import MrScraper
 
-client = MrScraper(token="atk_your_token_here")
+client = MrScraper(token="MRSCRAPER_API_TOKEN")
 ```
 
 ---
@@ -37,7 +38,7 @@ import asyncio
 from mrscraper import MrScraper
 
 async def main():
-    client = MrScraper(token="atk_your_token_here")
+    client = MrScraper(token="MRSCRAPER_API_TOKEN")
 
     result = await client.fetch_html(
         "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
@@ -212,25 +213,6 @@ except APIError as e:
     print(f"API error {e.status_code}: {e}")
 except NetworkError as e:
     print(f"Network problem: {e}")
-```
-
----
-
-## Development
-
-```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Lint & format
-ruff check .
-ruff format .
-
-# Type check
-mypy src/mrscraper
 ```
 
 ---

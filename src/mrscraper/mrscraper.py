@@ -32,7 +32,7 @@ class MrScraper:
         from mrscraper import AsyncMrScraper
 
         async def main():
-            client = AsyncMrScraper(token="atk_...")
+            client = AsyncMrScraper(token="MRSCRAPER_API_TOKEN")
             html = await client.fetch_html("https://example.com")
             print(html["data"])
 

@@ -116,7 +116,7 @@ class TestRerunScraperReal:
 class TestInvalidToken:
 
     async def test_invalid_token_raises_authentication_error(self):
-        client = MrScraper("atk_invalid_fake_token")
+        client = MrScraper("INVALID_MRSCRAPER_API_TOKEN")
         with pytest.raises(AuthenticationError):
             await client.fetch_html("https://books.toscrape.com/")
 

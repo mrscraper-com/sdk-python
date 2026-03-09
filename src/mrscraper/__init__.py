@@ -10,7 +10,7 @@ Quickstart::
     from mrscraper import MrScraper
 
     async def main():
-        client = MrScraper(token="atk_your_token_here")
+        client = MrScraper(token="MRSCRAPER_API_TOKEN")
         result = await client.fetch_html("https://example.com")
         print(result["data"])
 
