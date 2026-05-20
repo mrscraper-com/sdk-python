@@ -11,6 +11,7 @@ from .exceptions import APIError, AuthenticationError, NetworkError
 
 _FETCH_BASE_URL = "https://api.mrscraper.com"
 _API_BASE_URL = "https://api.app.mrscraper.com/api/v1"
+_SYNC_BASE_URL = "https://sync.scraper.mrscraper.com"
 
 _DEFAULT_TIMEOUT = 120
 
@@ -55,6 +56,13 @@ class MrScraper:
             "x-api-token": self._token,
         }
 
+    def _bearer_auth_headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "accept": "application/json",
+            "Authorization": f"Bearer {self._token}",
+        }
+
     def _client(self) -> httpx.AsyncClient:
         if self._http_client is not None:
             return self._http_client
@@ -84,12 +92,13 @@ class MrScraper:
         *,
         payload: dict[str, Any],
         timeout: float = 600.0,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         async with self._client() as client:
             try:
                 response = await client.post(
                     url,
-                    headers=self._auth_headers(),
+                    headers=headers or self._auth_headers(),
                     json=payload,
                     timeout=timeout,
                 )
@@ -176,6 +185,50 @@ class MrScraper:
         }
         full_url = f"{_FETCH_BASE_URL}?{urlencode(params)}"
         return await self._get(full_url, timeout=float(timeout + 30))
+
+    async def fetch_google_serp(
+        self,
+        url: str,
+        *,
+        raw: bool = True,
+        timeout: float = 600.0,
+    ) -> dict[str, Any]:
+        """
+        Fetch Google search results (SERP) synchronously.
+
+        Args:
+            url: Full Google search URL to scrape
+                 (e.g. ``"https://www.google.com/search?q=iphone+17"``).
+            raw: When ``True``, return the raw SERP payload (default ``True``).
+            timeout: Maximum seconds to wait for the request (default 600).
+
+        Returns:
+            A dict with keys ``status_code``, ``data``, and ``headers``.
+
+        Raises:
+            AuthenticationError: If the API token is invalid.
+            APIError: If the API returns a non-2xx error.
+            NetworkError: If a connection or timeout error occurs.
+
+        Example::
+
+            result = await client.fetch_google_serp(
+                "https://www.google.com/search?q=iphone+17",
+                raw=True,
+            )
+            print(result["data"])
+        """
+        endpoint = f"{_SYNC_BASE_URL}/api/google/serp/sync"
+        payload: dict[str, Any] = {
+            "url": url,
+            "raw": raw,
+        }
+        return await self._post(
+            endpoint,
+            payload=payload,
+            headers=self._bearer_auth_headers(),
+            timeout=timeout,
+        )
 
     async def create_scraper(
         self,
