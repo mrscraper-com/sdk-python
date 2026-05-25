@@ -438,6 +438,8 @@ class MrScraper:
                 scraper_id="manual_scraper_67890",
                 url="https://example.com/products/new-item",
             )
+        > [!WARNING]
+        > **Scraping login-protected pages carries serious legal and compliance risks.** Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you **fully accept all legal, financial, and ethical responsibility** for your actions.
         """
         endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun"
         payload: dict[str, Any] = {
@@ -486,6 +488,9 @@ class MrScraper:
                     "https://www.example.com/products/item3",
                 ],
             )
+            > [!WARNING]
+            > **Scraping login-protected pages carries serious legal and compliance risks.** Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you **fully accept all legal, financial, and ethical responsibility** for your actions.
+
         """
         endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun/bulk"
         payload: dict[str, Any] = {
