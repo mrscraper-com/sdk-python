@@ -108,6 +108,16 @@ result = await client.bulk_rerun_manual_scraper(
 )
 ```
 
+### Fetch Google SERP
+
+```python
+result = await client.fetch_google_serp(
+    "https://www.google.com/search?q=iphone+17",
+    raw=True,
+)
+print(result["data"])
+```
+
 ### Retrieve results
 
 ```python
@@ -140,6 +150,7 @@ All methods are coroutines and must be awaited.
 | Method | Description |
 |--------|-------------|
 | `fetch_html(url, *, timeout, geo_code, block_resources)` | Fetch rendered HTML via the MrScraper stealth browser |
+| `fetch_google_serp(url, *, raw, timeout)` | Fetch Google search results (SERP) synchronously |
 | `create_scraper(url, message, *, agent, proxy_country, ...)` | Create & run an AI-powered scraper |
 | `rerun_scraper(scraper_id, url, *, max_depth, max_pages, limit, ...)` | Rerun an AI scraper on a new URL |
 | `bulk_rerun_ai_scraper(scraper_id, urls)` | Rerun an AI scraper on multiple URLs in one batch |
@@ -216,7 +227,11 @@ except NetworkError as e:
 ```
 
 ---
+## Compliance & Legal Risk
+> **WARNING**
+> Scraping login-protected pages carries serious legal and compliance risks.** Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions. You can use above for other repos
 
+---
 ## License
 
 MIT © MrScraper

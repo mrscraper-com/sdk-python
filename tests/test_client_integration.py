@@ -15,8 +15,11 @@ from datetime import datetime
 from mrscraper import MrScraper
 from mrscraper.exceptions import AuthenticationError
 
-REAL_TOKEN = "<YOUR_REAL_TOKEN>"
-DEBUG_DIR = "/Users/mrscraper10/Documents/mrscraper-sdk/debug_dir"
+REAL_TOKEN = os.environ.get("MRSCRAPER_TOKEN", "")
+DEBUG_DIR = os.environ.get(
+    "MRSCRAPER_DEBUG_DIR",
+    os.path.join(os.path.dirname(__file__), "debug_results"),
+)
 
 
 def save_result(test_name: str, result: dict):
@@ -34,8 +37,8 @@ def save_result(test_name: str, result: dict):
 
 @pytest.fixture(scope="module")
 def token():
-    if not REAL_TOKEN:
-        pytest.skip("Set REAL_TOKEN to run integration tests.")
+    if not REAL_TOKEN or REAL_TOKEN == "<YOUR_REAL_TOKEN>":
+        pytest.skip("Set MRSCRAPER_TOKEN env var to run integration tests.")
     return REAL_TOKEN
 
 
@@ -64,6 +67,22 @@ class TestFetchHtmlReal:
             geo_code="US",
         )
         save_result("fetch_html_geo_us", result)
+
+        assert isinstance(result, dict)
+        assert result["status_code"] == 200
+        assert "data" in result
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestFetchGoogleSerpReal:
+
+    async def test_fetch_google_serp_returns_data(self, client):
+        result = await client.fetch_google_serp(
+            "https://www.google.com/search?q=iphone+17",
+            raw=True,
+        )
+        save_result("fetch_google_serp", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
