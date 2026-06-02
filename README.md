@@ -33,25 +33,31 @@ client = MrScraper(token="MRSCRAPER_API_TOKEN")
 
 ### Fetch raw HTML (stealth browser)
 
+Fetch the rendered HTML of a page using the MrScraper stealth browser. Handles JavaScript rendering, bot detection evasion, and optional geolocation proxying.
+
 ```python
-import asyncio
-from mrscraper import MrScraper
-
-async def main():
-    client = MrScraper(token="MRSCRAPER_API_TOKEN")
-
-    result = await client.fetch_html(
-        "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
-        geo_code="US",
-        timeout=120,
-        block_resources=False,
-    )
-    print(result["data"])   # raw HTML string
-
-asyncio.run(main())
+result = await client.fetch_html(
+    "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
+    geo_code="US",
+    timeout=120,
+    block_resources=False,
+)
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | `str` | *(required)* | Target URL to scrape |
+| `timeout` | `int` | `120` | Maximum seconds to wait for the page to load |
+| `geo_code` | `str` | `"US"` | ISO country code for proxy-based geolocation (e.g. `"US"`, `"GB"`, `"ID"`, `"SG"`) |
+| `block_resources` | `bool` | `False` | When `True`, blocks images, CSS, and fonts to speed up the request |
+
+**Returns:** `dict` with keys `status_code`, `data` (raw HTML string), and `headers`.
+
+---
+
 ### Create an AI scraper
+
+Create an AI-powered scraper using natural-language instructions and run it immediately. No CSS selectors required.
 
 ```python
 result = await client.create_scraper(
@@ -60,11 +66,34 @@ result = await client.create_scraper(
     agent="listing",          # "general" | "listing" | "map"
     proxy_country="US",
 )
-scraper_id = result["data"]["data"]["id"]
-print("Scraper ID:", scraper_id)
+scraper_id = result["data"]["data"]["scraperId"]
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | `str` | *(required)* | Target URL to scrape |
+| `message` | `str` | *(required)* | Natural-language description of what to extract (e.g. `"Extract all product names and prices"`) |
+| `agent` | `"general"` \| `"listing"` \| `"map"` | `"general"` | AI agent type (see table below) |
+| `proxy_country` | `str \| None` | `None` | ISO country code for proxy selection (e.g. `"US"`, `"GB"`, `"SG"`) |
+| `max_depth` | `int` | `2` | *(map agent only)* Crawl depth from the start URL. `0` = start URL only |
+| `max_pages` | `int` | `50` | *(map agent only)* Maximum number of pages to process |
+| `limit` | `int` | `1000` | *(map agent only)* Maximum number of records to extract |
+| `include_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to include when following links |
+| `exclude_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to skip when following links |
+
+| Agent | Best used for |
+|-------|---------------|
+| `"general"` | Default; handles almost any page |
+| `"listing"` | Product listings, job boards, search results |
+| `"map"` | Crawling all sub-pages / sitemaps of a site |
+
+**Returns:** `dict` with keys `status_code`, `data` (scraper info including the scraper ID), and `headers`.
+
+---
+
 ### Rerun a scraper on a new URL
+
+Reuse the extraction logic from a previously created AI scraper on any compatible URL.
 
 ```python
 result = await client.rerun_scraper(
@@ -73,7 +102,23 @@ result = await client.rerun_scraper(
 )
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scraper_id` | `str` | *(required)* | ID of the scraper to rerun (from `create_scraper`) |
+| `url` | `str` | *(required)* | Target URL — can be the original URL or a different page |
+| `max_depth` | `int` | `2` | *(map agent only)* Crawl depth from the start URL |
+| `max_pages` | `int` | `50` | *(map agent only)* Maximum number of pages to process |
+| `limit` | `int` | `1000` | *(map agent only)* Maximum number of records to extract |
+| `include_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to include |
+| `exclude_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to skip |
+
+**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+
+---
+
 ### Bulk rerun on multiple URLs (AI scraper)
+
+Rerun an existing AI scraper on multiple URLs in a single batch request. More efficient than calling `rerun_scraper` in a loop — all URLs are dispatched in parallel server-side.
 
 ```python
 result = await client.bulk_rerun_ai_scraper(
@@ -86,20 +131,42 @@ result = await client.bulk_rerun_ai_scraper(
 )
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scraper_id` | `str` | *(required)* | ID of the scraper to rerun (from `create_scraper`) |
+| `urls` | `list[str]` | *(required)* | List of target URLs. Must contain at least one URL |
+
+**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+
+---
+
 ### Rerun a manually configured scraper
+
+Rerun a scraper that was created manually through the MrScraper dashboard (with custom CSS selectors or XPath rules) on a new URL. Must **not** be an AI scraper. Find your scraper ID at https://app.mrscraper.com.
 
 ```python
 result = await client.rerun_manual_scraper(
-    scraper_id="manual_scraper_67890",
+    scraper_id="SCRAPER_ID",
     url="https://example.com/products/new-item",
 )
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scraper_id` | `str` | *(required)* | ID of the manual scraper (found in the MrScraper dashboard) |
+| `url` | `str` | *(required)* | Target URL — page structure should match the original scraper's target for selectors to work |
+
+**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+
+---
+
 ### Bulk rerun manual scraper on multiple URLs
+
+Rerun a manually configured scraper on multiple URLs in a single batch. All URLs are processed in parallel server-side. Find your scraper ID at https://app.mrscraper.com.
 
 ```python
 result = await client.bulk_rerun_manual_scraper(
-    scraper_id="scraper_12345",
+    scraper_id="SCRAPER_ID",
     urls=[
         "https://www.example.com/products/item1",
         "https://www.example.com/products/item2",
@@ -108,21 +175,43 @@ result = await client.bulk_rerun_manual_scraper(
 )
 ```
 
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scraper_id` | `str` | *(required)* | ID of the manual scraper (from the MrScraper dashboard). Must be a scraper created manually via the web interface, not an AI scraper |
+| `urls` | `list[str]` | *(required)* | List of target URLs. Each URL is processed independently using the scraper's logic |
+
+**Returns:** `dict` with keys `status_code`, `data` (bulk job info including job ID and status), and `headers`.
+
+---
+
 ### Fetch Google SERP
+
+Fetch Google search engine results pages (SERP) synchronously.
 
 ```python
 result = await client.fetch_google_serp(
     "https://www.google.com/search?q=iphone+17",
     raw=True,
 )
-print(result["data"])
 ```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | `str` | *(required)* | Full Google search URL to scrape (e.g. `"https://www.google.com/search?q=iphone+17"`) |
+| `raw` | `bool` | `True` | When `True`, return the raw SERP payload |
+| `timeout` | `float` | `600.0` | Maximum seconds to wait for the request |
+
+**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+
+---
 
 ### Retrieve results
 
+Fetch previously stored scraping results with pagination, sorting, and filtering.
+
 ```python
 # All results (paginated)
-page = await client.get_all_results(
+results = await client.get_all_results(
     sort_field="updatedAt",
     sort_order="DESC",
     page_size=20,
@@ -132,75 +221,33 @@ page = await client.get_all_results(
     start_at="2024-01-01",
     end_at="2024-01-31",
 )
-print(page["data"])
 
 # A specific result by ID
-result = await client.get_result_by_id("result_12345")
-print(result["data"])
+result = await client.get_result_by_id("RESULT_ID")
 ```
 
----
+#### `get_all_results` parameters
 
-## API Reference
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `sort_field` | `str` | `"updatedAt"` | Field to sort by. Options: `"createdAt"`, `"updatedAt"`, `"id"`, `"type"`, `"url"`, `"status"`, `"error"`, `"tokenUsage"`, `"runtime"` |
+| `sort_order` | `"ASC"` \| `"DESC"` | `"DESC"` | Sort direction |
+| `page_size` | `int` | `10` | Number of results per page |
+| `page` | `int` | `1` | Page number (1-indexed) |
+| `search` | `str \| None` | `None` | Free-text search query across result fields |
+| `date_range_column` | `str \| None` | `None` | Column name to filter by date range (e.g. `"updatedAt"`, `"createdAt"`) |
+| `start_at` | `str \| None` | `None` | ISO-8601 start date for the date range filter (e.g. `"2024-01-01"`) |
+| `end_at` | `str \| None` | `None` | ISO-8601 end date for the date range filter (e.g. `"2024-01-31"`) |
 
-### `MrScraper`
+**Returns:** `dict` with keys `status_code`, `data` (paginated results and pagination metadata), and `headers`.
 
-All methods are coroutines and must be awaited.
+#### `get_result_by_id` parameters
 
-| Method | Description |
-|--------|-------------|
-| `fetch_html(url, *, timeout, geo_code, block_resources)` | Fetch rendered HTML via the MrScraper stealth browser |
-| `fetch_google_serp(url, *, raw, timeout)` | Fetch Google search results (SERP) synchronously |
-| `create_scraper(url, message, *, agent, proxy_country, ...)` | Create & run an AI-powered scraper |
-| `rerun_scraper(scraper_id, url, *, max_depth, max_pages, limit, ...)` | Rerun an AI scraper on a new URL |
-| `bulk_rerun_ai_scraper(scraper_id, urls)` | Rerun an AI scraper on multiple URLs in one batch |
-| `rerun_manual_scraper(scraper_id, url)` | Rerun a manually configured scraper on a single URL |
-| `bulk_rerun_manual_scraper(scraper_id, urls)` | Rerun a manual scraper on multiple URLs in one batch |
-| `get_all_results(*, sort_field, sort_order, page_size, page, search, ...)` | List all results with filtering & pagination |
-| `get_result_by_id(result_id)` | Fetch a single result by its ID |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `result_id` | `str` | *(required)* | Unique identifier of the result (returned by scraper execution methods and `get_all_results`) |
 
-All methods return a `dict` with the following keys:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `status_code` | `int` | HTTP status code |
-| `data` | `Any` | Parsed JSON body or raw text |
-| `headers` | `dict` | Response headers |
-
-### `bulk_rerun_manual_scraper`
-
-Reruns a manually configured scraper on multiple URLs simultaneously in a single batch operation. This is more efficient than calling `rerun_manual_scraper` multiple times, as it processes all URLs in parallel and returns consolidated results. Ideal for scraping multiple pages, products, or articles with the same extraction logic.
-
-| Argument | Description |
-|----------|-------------|
-| `scraper_id` | The ID of the manual scraper to rerun (obtained from the MrScraper dashboard). Must be a scraper created manually through the web interface, not an AI scraper. Find it at https://app.mrscraper.com |
-| `urls` | A list of target URLs to scrape (required, must contain at least one URL). Each URL will be processed independently using the scraper's extraction logic. Example: `["https://example.com/page1", "https://example.com/page2"]` |
-
-**Returns:** A dict with `status_code`, `data` (bulk job info including job ID, status, metadata; use `get_all_results` or `get_result_by_id` to fetch per-URL results), and `headers`.
-
-**Example:**
-
-```python
-result = await client.bulk_rerun_manual_scraper(
-    scraper_id="scraper_12345",
-    urls=[
-        "https://www.example.com/products/item1",
-        "https://www.example.com/products/item2",
-        "https://www.example.com/products/item3",
-    ],
-)
-```
-
-### `create_scraper` — agent types
-
-| Agent | Best used for |
-|-------|---------------|
-| `"general"` | Default; handles almost any page |
-| `"listing"` | Product listings, job boards, search results |
-| `"map"` | Crawling all sub-pages / sitemaps of a site |
-
-The `max_depth`, `max_pages`, `limit`, `include_patterns`, and `exclude_patterns`
-parameters are only meaningful when `agent="map"`.
+**Returns:** `dict` with keys `status_code`, `data` (complete result object), and `headers`.
 
 ---
 

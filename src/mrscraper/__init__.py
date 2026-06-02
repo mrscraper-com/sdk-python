@@ -17,8 +17,8 @@ Quickstart::
     asyncio.run(main())
 """
 
-from .mrscraper import MrScraper
 from .exceptions import APIError, AuthenticationError, MrScraperError, NetworkError
+from .mrscraper import MrScraper
 
 __all__ = [
     "MrScraper",
