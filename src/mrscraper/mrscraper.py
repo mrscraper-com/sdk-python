@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Literal
 from urllib.parse import urlencode
 
@@ -23,7 +24,9 @@ class MrScraper:
     All methods are coroutines and must be awaited.
 
     Args:
-        token: Your MrScraper API token.  Get yours at https://app.mrscraper.com.
+        token: Your MrScraper API token. If not provided, the client will
+            automatically read from the ``MRSCRAPER_API_TOKEN`` environment variable.
+            Get yours at https://app.mrscraper.com.
         http_client: Optional custom ``httpx.AsyncClient`` instance.  If not
             provided a new one is created per request.
 
@@ -42,12 +45,20 @@ class MrScraper:
 
     def __init__(
         self,
-        token: str,
+        token: str | None = None,
         *,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._token = token
+        self._token = token or os.environ.get("MRSCRAPER_API_TOKEN", "")
         self._http_client = http_client
+
+    def _validate_token(self) -> None:
+        if not self._token or not self._token.strip():
+            raise AuthenticationError(
+                "API token is not set. Please provide a valid token when "
+                "initialising the client: MrScraper(token='YOUR_TOKEN'). "
+                "Get your token at https://app.mrscraper.com"
+            )
 
     def _auth_headers(self) -> dict[str, str]:
         return {
@@ -176,6 +187,7 @@ class MrScraper:
             )
             print(result["data"])  # raw HTML string
         """
+        self._validate_token()
         params = {
             "token": self._token,
             "timeout": timeout,
@@ -218,6 +230,7 @@ class MrScraper:
             )
             print(result["data"])
         """
+        self._validate_token()
         endpoint = f"{_SYNC_BASE_URL}/api/google/serp/sync"
         payload: dict[str, Any] = {
             "url": url,
@@ -290,6 +303,7 @@ class MrScraper:
             )
             scraper_id = result["data"]["id"]
         """
+        self._validate_token()
         endpoint = f"{_API_BASE_URL}/scrapers-ai"
 
         if agent in ("general", "listing"):
@@ -355,6 +369,7 @@ class MrScraper:
                 max_pages=100,
             )
         """
+        self._validate_token()
         endpoint = f"{_API_BASE_URL}/scrapers-ai-rerun"
         payload: dict[str, Any] = {
             "scraperId": scraper_id,
@@ -400,6 +415,7 @@ class MrScraper:
                 ],
             )
         """
+        self._validate_token()
         endpoint = f"{_API_BASE_URL}/scrapers-ai-rerun/bulk"
         payload: dict[str, Any] = {
             "scraperId": scraper_id,
@@ -437,10 +453,11 @@ class MrScraper:
                 scraper_id="manual_scraper_67890",
                 url="https://example.com/products/new-item",
             )
-        
+
         Warning:
             Scraping login-protected pages carries serious legal and compliance risks. Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions.
         """
+        self._validate_token()
         endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun"
         payload: dict[str, Any] = {
             "scraperId": scraper_id,
@@ -487,11 +504,12 @@ class MrScraper:
                     "https://www.example.com/products/item3",
                 ],
             )
-        
+
         Warning:
             Scraping login-protected pages carries serious legal and compliance risks. Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions.
 
         """
+        self._validate_token()
         endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun/bulk"
         payload: dict[str, Any] = {
             "scraperId": scraper_id,
@@ -559,6 +577,7 @@ class MrScraper:
                 end_at="2024-01-08",
             )
         """
+        self._validate_token()
         params: dict[str, Any] = {
             "sortField": sort_field,
             "sortOrder": sort_order,
@@ -599,5 +618,6 @@ class MrScraper:
             result = await client.get_result_by_id("result_12345")
             print(result["data"])
         """
+        self._validate_token()
         url = f"{_API_BASE_URL}/results/{result_id}"
         return await self._get(url, headers=self._auth_headers(), timeout=600.0)

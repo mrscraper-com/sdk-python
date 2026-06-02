@@ -50,7 +50,6 @@ def client(token):
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestFetchHtmlReal:
-
     async def test_fetch_html_returns_200_and_html(self, client):
         result = await client.fetch_html("https://books.toscrape.com/")
         save_result("fetch_html_basic", result)
@@ -59,7 +58,6 @@ class TestFetchHtmlReal:
         assert result["status_code"] == 200
         assert "data" in result
         assert "<html" in result["data"].lower()
-
 
     async def test_fetch_html_respects_geo_code(self, client):
         result = await client.fetch_html(
@@ -76,7 +74,6 @@ class TestFetchHtmlReal:
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestFetchGoogleSerpReal:
-
     async def test_fetch_google_serp_returns_data(self, client):
         result = await client.fetch_google_serp(
             "https://www.google.com/search?q=iphone+17",
@@ -92,7 +89,6 @@ class TestFetchGoogleSerpReal:
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestGetAllResultsReal:
-
     async def test_get_all_results_returns_structure(self, client):
         result = await client.get_all_results(page=1, page_size=5)
         save_result("get_all_results", result)
@@ -104,7 +100,6 @@ class TestGetAllResultsReal:
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestCreateScraperReal:
-
     async def test_create_scraper_general_returns_id(self, client):
         result = await client.create_scraper(
             "https://books.toscrape.com/",
@@ -116,6 +111,7 @@ class TestCreateScraperReal:
         assert result["status_code"] == 200 or result["status_code"] == 201
         assert "data" in result
         assert "id" in result["data"]["data"] or "scraperId" in result["data"]["data"]
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -130,10 +126,10 @@ class TestRerunScraperReal:
         assert "data" in result
         assert "scraperId" in result["data"]["data"]
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestInvalidToken:
-
     async def test_invalid_token_raises_authentication_error(self):
         client = MrScraper("INVALID_MRSCRAPER_API_TOKEN")
         with pytest.raises(AuthenticationError):
@@ -155,6 +151,7 @@ class TestRerunManualScraperReal:
         assert "scraperId" in result["data"]["data"]
         assert result["data"]["data"]["scraperId"] == "817dce5f-4530-415b-9317-c2f660b508d3"
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestGetAllResultsReal:
@@ -172,7 +169,10 @@ class TestBulkRerunScraperReal:
     async def test_bulk_rerun_scraper_returns_id(self, client):
         result = await client.bulk_rerun_ai_scraper(
             "fdce9744-570b-48a2-8017-8bcaa251eb6f",
-            ["https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html"],
+            [
+                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+                "https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html",
+            ],
         )
         save_result("bulk_rerun_scraper", result)
         assert result["status_code"] == 200 or result["status_code"] == 201
