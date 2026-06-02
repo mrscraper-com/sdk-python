@@ -61,9 +61,9 @@ Create an AI-powered scraper using natural-language instructions and run it imme
 
 ```python
 result = await client.create_scraper(
-    url="https://example.com/products",
-    message="Extract all product names, prices, and ratings",
-    agent="listing",          # "general" | "listing" | "map"
+    url="https://example.com/product/12345",
+    message="Extract name, description, price, and ratings",
+    agent="general",
     proxy_country="US",
 )
 scraper_id = result["data"]["data"]["scraperId"]
@@ -98,7 +98,7 @@ Reuse the extraction logic from a previously created AI scraper on any compatibl
 ```python
 result = await client.rerun_scraper(
     scraper_id=scraper_id,
-    url="https://example.com/products?page=2",
+    url="https://example.com/product/12346",
 )
 ```
 
@@ -107,7 +107,7 @@ result = await client.rerun_scraper(
 | `scraper_id` | `str` | *(required)* | ID of the scraper to rerun (from `create_scraper`) |
 | `url` | `str` | *(required)* | Target URL — can be the original URL or a different page |
 | `max_depth` | `int` | `2` | *(map agent only)* Crawl depth from the start URL |
-| `max_pages` | `int` | `50` | *(map agent only)* Maximum number of pages to process |
+| `max_pages` | `int` | `50` | *(map and listing agent only)* Maximum number of pages to process |
 | `limit` | `int` | `1000` | *(map agent only)* Maximum number of records to extract |
 | `include_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to include |
 | `exclude_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to skip |
