@@ -11,9 +11,20 @@ python -m pip install -e .
 export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
 ```
 
-These commands install the current checkout. After version 0.4.0 is published, install it from PyPI with `python -m pip install --upgrade mrscraper-sdk`. The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` if you want to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. Both methods are async and must be awaited.
+These commands install the current checkout. To install version 0.5.0 from PyPI, run `python -m pip install --upgrade mrscraper-sdk==0.5.0`. The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` if you want to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. Both methods are async and must be awaited.
 
-## Fetch content
+## Migrating to 0.5.0
+
+Version 0.5.0 renames two public methods. Update existing calls as follows:
+
+| Previous method | New method |
+|-----------------|------------|
+| `client.fetch_content(...)` | `client.scraper_api(...)` |
+| `client.google_serp(...)` | `client.web_search(...)` |
+
+The previous method names have been removed. Arguments and response formats are unchanged from 0.4.0.
+
+## Scraper API
 
 ```python
 import asyncio
@@ -21,13 +32,13 @@ from mrscraper import MrScraper
 
 async def main():
     client = MrScraper()
-    result = await client.fetch_content("https://example.com")
+    result = await client.scraper_api("https://example.com")
     print(result["data"])
 
 asyncio.run(main())
 ```
 
-`fetch_content` sends a `POST` request to `https://api.mrscraper.com`. The JSON body contains the target URL, `maxRetries`, and optional `tokenCap`. Page options and the token are query parameters. The return value has `status_code`, `data`, and `headers` keys. The SDK parses JSON responses into Python values and returns other responses as text. Depending on the requested options, `data` may contain HTML, Markdown, a screenshot, or a combination; inspect the returned value before assuming it is an HTML string.
+`scraper_api` sends a `POST` request to `https://api.mrscraper.com`. The JSON body contains the target URL, `maxRetries`, and optional `tokenCap`. Page options and the token are query parameters. The return value has `status_code`, `data`, and `headers` keys. The SDK parses JSON responses into Python values and returns other responses as text. Depending on the requested options, `data` may contain HTML, Markdown, a screenshot, or a combination; inspect the returned value before assuming it is an HTML string.
 
 To request HTML, Markdown, and a screenshot together:
 
@@ -37,7 +48,7 @@ from mrscraper import MrScraper
 
 async def main():
     client = MrScraper()
-    result = await client.fetch_content(
+    result = await client.scraper_api(
         "https://example.com",
         html=True,
         markdown=True,
@@ -69,7 +80,7 @@ Setting `screenshot=True` also enables browser rendering, even if `browser_rende
 | `stream` | `None` | Request a streamed response, buffered by the SDK |
 | `discard_token_secret` | `""` | Value for the `x-discard-token-secret` header |
 
-## Google SERP
+## Web search
 
 ```python
 import asyncio
@@ -77,7 +88,7 @@ from mrscraper import MrScraper
 
 async def main():
     client = MrScraper()
-    result = await client.google_serp(
+    result = await client.web_search(
         "python web scraping",
         raw=False,
         region="us",
@@ -90,7 +101,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`google_serp` sends a `POST` request to `https://sync.scraper.mrscraper.com/api/google/serp/v2/sync`. The first argument accepts query text or a full Google search URL; for a URL, the client extracts `q`, `gl`, `hl`, and `start`. Explicit options override values from the URL. The return value has `status_code`, `data`, and `headers` keys. `raw=True` is the default and requests HTML; set `raw=False` to use `format`.
+`web_search` sends a `POST` request to `https://sync.scraper.mrscraper.com/api/google/serp/v2/sync`. The first argument accepts query text or a full Google search URL; for a URL, the client extracts `q`, `gl`, `hl`, and `start`. Explicit options override values from the URL. The return value has `status_code`, `data`, and `headers` keys. `raw=True` is the default and requests HTML; set `raw=False` to use `format`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -111,25 +122,25 @@ python file.py fetch-content --url "https://example.com" --super
 python file.py google-serp --query "site:example.com" --format json
 ```
 
-The `fetch-content` command calls `fetch_content()` and enables `screenshot=true` and `warmStart=true` by default. Pass `--super` to enable real device routing; the printed request URL should contain `super=true`. The `google-serp` command calls `google_serp()` and requests JSON by default.
+The `fetch-content` command calls `scraper_api()` and enables `screenshot=true` and `warmStart=true` by default. Pass `--super` to enable real device routing; the printed request URL should contain `super=true`. The `google-serp` command calls `web_search()` and requests JSON by default.
 
 Use `python file.py --help` for the available options. Add `--save-dir manual_results` to save a full JSON response.
 
 ## Publishing a release
 
-Publishing is manual. Choose a version that has not been published to PyPI and set it in both `pyproject.toml` and `src/mrscraper/__init__.py`. This checkout is prepared for `0.4.0`. From the repository root, run:
+Publishing is manual. Choose a version that has not been published to PyPI and set it in both `pyproject.toml` and `src/mrscraper/__init__.py`. This checkout is prepared for `0.5.0`. From the repository root, run:
 
 ```bash
 python -m pip install build twine pytest pytest-asyncio
 python -m pip install -e .
 python -m pytest -m "not integration" -q
-python -m build --outdir dist/manual-0.4.0
-ls dist/manual-0.4.0
-python -m twine check dist/manual-0.4.0/mrscraper_sdk-0.4.0*
-python -m twine upload --username __token__ dist/manual-0.4.0/mrscraper_sdk-0.4.0*
+python -m build --outdir dist/manual-0.5.0
+ls dist/manual-0.5.0
+python -m twine check dist/manual-0.5.0/mrscraper_sdk-0.5.0*
+python -m twine upload --username __token__ dist/manual-0.5.0/mrscraper_sdk-0.5.0*
 ```
 
-Before uploading, confirm that `ls` shows only the intended 0.4.0 files. Twine prompts for a [PyPI API token](https://pypi.org/manage/account/#api-tokens) as the password. Do not upload older files from `dist/`.
+Before uploading, confirm that `ls` shows only the intended 0.5.0 files. Twine prompts for a [PyPI API token](https://pypi.org/manage/account/#api-tokens) as the password. Do not upload older files from `dist/`.
 
 ## Errors
 

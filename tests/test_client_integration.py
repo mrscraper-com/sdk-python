@@ -50,21 +50,21 @@ def client(token):
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestFetchHtmlReal:
-    async def test_fetch_content_returns_200_and_html(self, client):
-        result = await client.fetch_content("https://books.toscrape.com/")
-        save_result("fetch_content_basic", result)
+    async def test_scraper_api_returns_200_and_html(self, client):
+        result = await client.scraper_api("https://books.toscrape.com/")
+        save_result("scraper_api_basic", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
         assert "data" in result
         assert "<html" in result["data"].lower()
 
-    async def test_fetch_content_respects_geo_code(self, client):
-        result = await client.fetch_content(
+    async def test_scraper_api_respects_geo_code(self, client):
+        result = await client.scraper_api(
             "https://books.toscrape.com/",
             geo_code="US",
         )
-        save_result("fetch_content_geo_us", result)
+        save_result("scraper_api_geo_us", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
@@ -74,12 +74,12 @@ class TestFetchHtmlReal:
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestFetchGoogleSerpReal:
-    async def test_google_serp_returns_data(self, client):
-        result = await client.google_serp(
+    async def test_web_search_returns_data(self, client):
+        result = await client.web_search(
             "https://www.google.com/search?q=iphone+17",
             raw=True,
         )
-        save_result("google_serp", result)
+        save_result("web_search", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
@@ -92,4 +92,4 @@ class TestInvalidToken:
     async def test_invalid_token_raises_authentication_error(self):
         client = MrScraper("INVALID_MRSCRAPER_API_TOKEN")
         with pytest.raises(AuthenticationError):
-            await client.fetch_content("https://books.toscrape.com/")
+            await client.scraper_api("https://books.toscrape.com/")

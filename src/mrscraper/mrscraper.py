@@ -39,7 +39,7 @@ class MrScraper:
 
         async def main():
             client = MrScraper(token="YOUR_TOKEN")
-            result = await client.fetch_content("https://example.com")
+            result = await client.scraper_api("https://example.com")
             print(result["data"])
 
         asyncio.run(main())
@@ -178,7 +178,7 @@ class MrScraper:
             ) from exc
         raise APIError(MrScraper._safe_http_error(exc), status_code=status_code) from exc
 
-    async def fetch_content(
+    async def scraper_api(
         self,
         url: str,
         *,
@@ -256,7 +256,7 @@ class MrScraper:
 
         Example::
 
-            result = await client.fetch_content(
+            result = await client.scraper_api(
                 "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
                 geo_code="US",
                 timeout=120,
@@ -313,7 +313,7 @@ class MrScraper:
             timeout=float(timeout + 30),
         )
 
-    async def google_serp(
+    async def web_search(
         self,
         url: str,
         *,
@@ -350,7 +350,7 @@ class MrScraper:
 
         Example::
 
-            result = await client.google_serp(
+            result = await client.web_search(
                 "https://www.google.com/search?q=iphone+17",
                 raw=True,
             )

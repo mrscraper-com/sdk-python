@@ -10,7 +10,7 @@ from mrscraper import MrScraper
 
 
 @pytest.mark.asyncio
-async def test_fetch_content_super_flag_sets_query_parameter():
+async def test_scraper_api_super_flag_sets_query_parameter():
     requests = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -27,7 +27,7 @@ async def test_fetch_content_super_flag_sets_query_parameter():
 
 
 @pytest.mark.asyncio
-async def test_fetch_content_without_super_omits_query_parameter():
+async def test_scraper_api_without_super_omits_query_parameter():
     requests = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -42,7 +42,7 @@ async def test_fetch_content_without_super_omits_query_parameter():
 
 
 @pytest.mark.asyncio
-async def test_google_serp_command_calls_renamed_method():
+async def test_web_search_command_calls_renamed_method():
     requests = []
 
     async def handler(request: httpx.Request) -> httpx.Response:

@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 async def run_method(client: MrScraper, args: argparse.Namespace) -> dict[str, Any]:
     timeout = {"timeout": args.timeout} if args.timeout is not None else {}
     if args.method == "fetch-content":
-        return await client.fetch_content(
+        return await client.scraper_api(
             args.url,
             html=args.html,
             markdown=args.markdown,
@@ -73,7 +73,7 @@ async def run_method(client: MrScraper, args: argparse.Namespace) -> dict[str, A
             browser_rendering=args.browser_rendering,
             **timeout,
         )
-    return await client.google_serp(
+    return await client.web_search(
         args.query,
         raw=args.raw,
         region=args.region,
