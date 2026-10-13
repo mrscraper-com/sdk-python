@@ -1,284 +1,155 @@
 # MrScraper Python SDK
+
 ![](./mrscraper.jpeg)
 
-A Simple Python SDK for the [MrScraper](https://mrscraper.com) web-scraping API.
-Supports **async / await** usage.
+An async Python client for [MrScraper](https://mrscraper.com) content fetching and Google SERP. Requires Python 3.9+.
 
----
-
-## Installation
+## Install and authenticate
 
 ```bash
-pip install mrscraper-sdk
+python -m pip install -e .
+export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
 ```
 
-Requires Python 3.9+.
+These commands install the current checkout. To install version 0.5.0 from PyPI, run `python -m pip install --upgrade mrscraper-sdk==0.5.0`. The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` if you want to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. Both methods are async and must be awaited.
 
----
+## Migrating to 0.5.0
 
-## Authentication
+Version 0.5.0 renames two public methods. Update existing calls as follows:
 
-Every client is initialised with your MrScraper API token.
-Get yours at <https://app.mrscraper.com>.
+| Previous method | New method |
+|-----------------|------------|
+| `client.fetch_content(...)` | `client.scraper_api(...)` |
+| `client.google_serp(...)` | `client.web_search(...)` |
+
+The previous method names have been removed. Arguments and response formats are unchanged from 0.4.0.
+
+## Scraper API
 
 ```python
+import asyncio
 from mrscraper import MrScraper
 
-client = MrScraper(token="MRSCRAPER_API_TOKEN")
+async def main():
+    client = MrScraper()
+    result = await client.scraper_api("https://example.com")
+    print(result["data"])
+
+asyncio.run(main())
 ```
 
----
+`scraper_api` sends a `POST` request to `https://api.mrscraper.com`. The JSON body contains the target URL, `maxRetries`, and optional `tokenCap`. Page options and the token are query parameters. The return value has `status_code`, `data`, and `headers` keys. The SDK parses JSON responses into Python values and returns other responses as text. Depending on the requested options, `data` may contain HTML, Markdown, a screenshot, or a combination; inspect the returned value before assuming it is an HTML string.
 
-## Quick Start
-
-### Fetch raw HTML (stealth browser)
-
-Fetch the rendered HTML of a page using the MrScraper stealth browser. Handles JavaScript rendering, bot detection evasion, and optional geolocation proxying.
+To request HTML, Markdown, and a screenshot together:
 
 ```python
-result = await client.fetch_html(
-    "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
-    geo_code="US",
-    timeout=120,
-    block_resources=False,
-)
+import asyncio
+from mrscraper import MrScraper
+
+async def main():
+    client = MrScraper()
+    result = await client.scraper_api(
+        "https://example.com",
+        html=True,
+        markdown=True,
+        screenshot=True,
+        super=True,
+    )
+    print(result["data"])
+
+asyncio.run(main())
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `url` | `str` | *(required)* | Target URL to scrape |
-| `timeout` | `int` | `120` | Maximum seconds to wait for the page to load |
-| `geo_code` | `str` | `"US"` | ISO country code for proxy-based geolocation (e.g. `"US"`, `"GB"`, `"ID"`, `"SG"`) |
-| `block_resources` | `bool` | `False` | When `True`, blocks images, CSS, and fonts to speed up the request |
+Setting `screenshot=True` also enables browser rendering, even if `browser_rendering=False` is passed.
 
-**Returns:** `dict` with keys `status_code`, `data` (raw HTML string), and `headers`.
+| Option | Default | Description |
+|--------|---------|-------------|
+| `url` | required | Target URL |
+| `html`, `markdown` | `True`, `False` | Request HTML, Markdown, or both |
+| `timeout` | `120` | Page timeout in seconds, from 1 to 300 |
+| `geo_code`, `proxy_country` | `"US"`, `None` | Geolocation country code and optional `proxyCountry` field |
+| `browser_rendering` | `None` | `True` to force browser rendering, `False` to disable it, or `None` for automatic fallback |
+| `screenshot` | `False` | Capture a screenshot; also forces browser rendering |
+| `super` | `False` | Enable real device routing |
+| `use_proxy`, `proxy` | `True`, `None` | Allow a proxy or supply `username:password@host:port` |
+| `home_page` | `False` | Visit the site's root first; sent as `warmStart=true` |
+| `wait_for_selector` | `None` | Wait for a CSS selector |
+| `block_resources`, `bypass_proxy` | `False`, `False` | Block images, CSS, and fonts, or enable the API's proxy bypass behavior |
+| `cookie_jar`, `headers` | `None`, `None` | Cookie configuration string and target request headers (dictionary or JSON string) |
+| `max_retries`, `token_cap` | `3`, `None` | Retry controls |
+| `stream` | `None` | Request a streamed response, buffered by the SDK |
+| `discard_token_secret` | `""` | Value for the `x-discard-token-secret` header |
 
----
-
-### Create an AI scraper
-
-Create an AI-powered scraper using natural-language instructions and run it immediately. No CSS selectors required.
+## Web search
 
 ```python
-result = await client.create_scraper(
-    url="https://example.com/products",
-    message="Extract all product names, prices, and ratings",
-    agent="listing",          # "general" | "listing" | "map"
-    proxy_country="US",
-)
-scraper_id = result["data"]["data"]["scraperId"]
+import asyncio
+from mrscraper import MrScraper
+
+async def main():
+    client = MrScraper()
+    result = await client.web_search(
+        "python web scraping",
+        raw=False,
+        region="us",
+        language="en",
+        page=1,
+        format="json",
+    )
+    print(result["data"])
+
+asyncio.run(main())
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `url` | `str` | *(required)* | Target URL to scrape |
-| `message` | `str` | *(required)* | Natural-language description of what to extract (e.g. `"Extract all product names and prices"`) |
-| `agent` | `"general"` \| `"listing"` \| `"map"` | `"general"` | AI agent type (see table below) |
-| `proxy_country` | `str \| None` | `None` | ISO country code for proxy selection (e.g. `"US"`, `"GB"`, `"SG"`) |
-| `max_depth` | `int` | `2` | *(map agent only)* Crawl depth from the start URL. `0` = start URL only |
-| `max_pages` | `int` | `50` | *(map agent only)* Maximum number of pages to process |
-| `limit` | `int` | `1000` | *(map agent only)* Maximum number of records to extract |
-| `include_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to include when following links |
-| `exclude_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to skip when following links |
+`web_search` sends a `POST` request to `https://sync.scraper.mrscraper.com/api/google/serp/v2/sync`. The first argument accepts query text or a full Google search URL; for a URL, the client extracts `q`, `gl`, `hl`, and `start`. Explicit options override values from the URL. The return value has `status_code`, `data`, and `headers` keys. `raw=True` is the default and requests HTML; set `raw=False` to use `format`.
 
-| Agent | Best used for |
-|-------|---------------|
-| `"general"` | Default; handles almost any page |
-| `"listing"` | Product listings, job boards, search results |
-| `"map"` | Crawling all sub-pages / sitemaps of a site |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `url` | required | Search query or Google search URL |
+| `raw` | `True` | Request HTML when true, regardless of `format` |
+| `format` | `"json"` | `"json"` or `"html"` when `raw=False` |
+| `region`, `language` | `None`, `None` | Country and language |
+| `page` | `None` | One based results page |
+| `render_js` | `False` | Render JavaScript features |
+| `timeout` | `600.0` | Request timeout in seconds |
 
-**Returns:** `dict` with keys `status_code`, `data` (scraper info including the scraper ID), and `headers`.
+## Smoke test this checkout
 
----
+`file.py` runs one live request per invocation. Set your token first, then run:
 
-### Rerun a scraper on a new URL
-
-Reuse the extraction logic from a previously created AI scraper on any compatible URL.
-
-```python
-result = await client.rerun_scraper(
-    scraper_id=scraper_id,
-    url="https://example.com/products?page=2",
-)
+```bash
+python file.py fetch-content --url "https://example.com" --super
+python file.py google-serp --query "site:example.com" --format json
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `scraper_id` | `str` | *(required)* | ID of the scraper to rerun (from `create_scraper`) |
-| `url` | `str` | *(required)* | Target URL — can be the original URL or a different page |
-| `max_depth` | `int` | `2` | *(map agent only)* Crawl depth from the start URL |
-| `max_pages` | `int` | `50` | *(map agent only)* Maximum number of pages to process |
-| `limit` | `int` | `1000` | *(map agent only)* Maximum number of records to extract |
-| `include_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to include |
-| `exclude_patterns` | `str` | `""` | *(map agent only)* `\|\|`-separated URL regex patterns to skip |
+The `fetch-content` command calls `scraper_api()` and enables `screenshot=true` and `warmStart=true` by default. Pass `--super` to enable real device routing; the printed request URL should contain `super=true`. The `google-serp` command calls `web_search()` and requests JSON by default.
 
-**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+Use `python file.py --help` for the available options. Add `--save-dir manual_results` to save a full JSON response.
 
----
+## Publishing a release
 
-### Bulk rerun on multiple URLs (AI scraper)
+Publishing is manual. Choose a version that has not been published to PyPI and set it in both `pyproject.toml` and `src/mrscraper/__init__.py`. This checkout is prepared for `0.5.0`. From the repository root, run:
 
-Rerun an existing AI scraper on multiple URLs in a single batch request. More efficient than calling `rerun_scraper` in a loop — all URLs are dispatched in parallel server-side.
-
-```python
-result = await client.bulk_rerun_ai_scraper(
-    scraper_id=scraper_id,
-    urls=[
-        "https://example.com/products/item1",
-        "https://example.com/products/item2",
-        "https://example.com/products/item3",
-    ],
-)
+```bash
+python -m pip install build twine pytest pytest-asyncio
+python -m pip install -e .
+python -m pytest -m "not integration" -q
+python -m build --outdir dist/manual-0.5.0
+ls dist/manual-0.5.0
+python -m twine check dist/manual-0.5.0/mrscraper_sdk-0.5.0*
+python -m twine upload --username __token__ dist/manual-0.5.0/mrscraper_sdk-0.5.0*
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `scraper_id` | `str` | *(required)* | ID of the scraper to rerun (from `create_scraper`) |
-| `urls` | `list[str]` | *(required)* | List of target URLs. Must contain at least one URL |
+Before uploading, confirm that `ls` shows only the intended 0.5.0 files. Twine prompts for a [PyPI API token](https://pypi.org/manage/account/#api-tokens) as the password. Do not upload older files from `dist/`.
 
-**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
+## Errors
 
----
+`MrScraperError` is the base exception. `AuthenticationError` indicates a missing or invalid token, `APIError` carries an HTTP `status_code`, and `NetworkError` indicates a connection or timeout failure.
 
-### Rerun a manually configured scraper
-
-Rerun a scraper that was created manually through the MrScraper dashboard (with custom CSS selectors or XPath rules) on a new URL. Must **not** be an AI scraper. Find your scraper ID at https://app.mrscraper.com.
-
-```python
-result = await client.rerun_manual_scraper(
-    scraper_id="SCRAPER_ID",
-    url="https://example.com/products/new-item",
-)
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `scraper_id` | `str` | *(required)* | ID of the manual scraper (found in the MrScraper dashboard) |
-| `url` | `str` | *(required)* | Target URL — page structure should match the original scraper's target for selectors to work |
-
-**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
-
----
-
-### Bulk rerun manual scraper on multiple URLs
-
-Rerun a manually configured scraper on multiple URLs in a single batch. All URLs are processed in parallel server-side. Find your scraper ID at https://app.mrscraper.com.
-
-```python
-result = await client.bulk_rerun_manual_scraper(
-    scraper_id="SCRAPER_ID",
-    urls=[
-        "https://www.example.com/products/item1",
-        "https://www.example.com/products/item2",
-        "https://www.example.com/products/item3",
-    ],
-)
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `scraper_id` | `str` | *(required)* | ID of the manual scraper (from the MrScraper dashboard). Must be a scraper created manually via the web interface, not an AI scraper |
-| `urls` | `list[str]` | *(required)* | List of target URLs. Each URL is processed independently using the scraper's logic |
-
-**Returns:** `dict` with keys `status_code`, `data` (bulk job info including job ID and status), and `headers`.
-
----
-
-### Fetch Google SERP
-
-Fetch Google search engine results pages (SERP) synchronously.
-
-```python
-result = await client.fetch_google_serp(
-    "https://www.google.com/search?q=iphone+17",
-    raw=True,
-)
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `url` | `str` | *(required)* | Full Google search URL to scrape (e.g. `"https://www.google.com/search?q=iphone+17"`) |
-| `raw` | `bool` | `True` | When `True`, return the raw SERP payload |
-| `timeout` | `float` | `600.0` | Maximum seconds to wait for the request |
-
-**Returns:** `dict` with keys `status_code`, `data`, and `headers`.
-
----
-
-### Retrieve results
-
-Fetch previously stored scraping results with pagination, sorting, and filtering.
-
-```python
-# All results (paginated)
-results = await client.get_all_results(
-    sort_field="updatedAt",
-    sort_order="DESC",
-    page_size=20,
-    page=1,
-    search="product",
-    date_range_column="updatedAt",
-    start_at="2024-01-01",
-    end_at="2024-01-31",
-)
-
-# A specific result by ID
-result = await client.get_result_by_id("RESULT_ID")
-```
-
-#### `get_all_results` parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `sort_field` | `str` | `"updatedAt"` | Field to sort by. Options: `"createdAt"`, `"updatedAt"`, `"id"`, `"type"`, `"url"`, `"status"`, `"error"`, `"tokenUsage"`, `"runtime"` |
-| `sort_order` | `"ASC"` \| `"DESC"` | `"DESC"` | Sort direction |
-| `page_size` | `int` | `10` | Number of results per page |
-| `page` | `int` | `1` | Page number (1-indexed) |
-| `search` | `str \| None` | `None` | Free-text search query across result fields |
-| `date_range_column` | `str \| None` | `None` | Column name to filter by date range (e.g. `"updatedAt"`, `"createdAt"`) |
-| `start_at` | `str \| None` | `None` | ISO-8601 start date for the date range filter (e.g. `"2024-01-01"`) |
-| `end_at` | `str \| None` | `None` | ISO-8601 end date for the date range filter (e.g. `"2024-01-31"`) |
-
-**Returns:** `dict` with keys `status_code`, `data` (paginated results and pagination metadata), and `headers`.
-
-#### `get_result_by_id` parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `result_id` | `str` | *(required)* | Unique identifier of the result (returned by scraper execution methods and `get_all_results`) |
-
-**Returns:** `dict` with keys `status_code`, `data` (complete result object), and `headers`.
-
----
-
-## Exceptions
-
-| Exception | Raised when |
-|-----------|-------------|
-| `MrScraperError` | Base class for all SDK errors |
-| `AuthenticationError` | API token is invalid or missing (HTTP 401) |
-| `APIError` | API returned a non-2xx error; has `.status_code` attribute |
-| `NetworkError` | Connection timeout or network-level failure |
-
-```python
-from mrscraper.exceptions import AuthenticationError, APIError, NetworkError
-
-try:
-    result = await client.fetch_html("https://example.com")
-except AuthenticationError:
-    print("Check your API token at https://app.mrscraper.com")
-except APIError as e:
-    print(f"API error {e.status_code}: {e}")
-except NetworkError as e:
-    print(f"Network problem: {e}")
-```
-
----
 ## Compliance & Legal Risk
-> **WARNING**
-> Scraping login-protected pages carries serious legal and compliance risks. Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions. 
 
----
+Scraping login-protected pages can carry legal and compliance risks. Check the target site's terms and applicable law before automating access.
+
 ## License
 
 MIT © MrScraper
