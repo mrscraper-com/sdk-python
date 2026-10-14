@@ -27,7 +27,7 @@ from mrscraper import MrScraper, MrScraperError  # noqa: E402
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("method", choices=("fetch-content", "google-serp"))
+    parser.add_argument("method", choices=("fetch-content", "google-serp", "account"))
     parser.add_argument("--url", default="https://www.ebay.com/itm/266727555514")
     parser.add_argument("--query", default="site:ebay.com shoes")
     parser.add_argument("--timeout", type=int, help="Request timeout in seconds")
@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run_method(client: MrScraper, args: argparse.Namespace) -> dict[str, Any]:
     timeout = {"timeout": args.timeout} if args.timeout is not None else {}
+    if args.method == "account":
+        return await client.account(**timeout)
     if args.method == "fetch-content":
         return await client.scraper_api(
             args.url,

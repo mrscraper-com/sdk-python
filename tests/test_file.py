@@ -10,6 +10,19 @@ from mrscraper import MrScraper
 
 
 @pytest.mark.asyncio
+async def test_account_command_checks_subscription():
+    async def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == "/api/v1/subscription-accounts"
+        return httpx.Response(200, json={"data": {"tokenLimit": 100, "tokenUsage": 20}})
+
+    args = smoke_test.build_parser().parse_args(["account"])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        result = await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
+    assert result["data"]["token_remaining"] == 80
+
+
+@pytest.mark.asyncio
 async def test_scraper_api_super_flag_sets_query_parameter():
     requests = []
 

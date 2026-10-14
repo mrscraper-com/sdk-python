@@ -2,7 +2,7 @@
 
 ![](./mrscraper.jpeg)
 
-An async Python client for [MrScraper](https://mrscraper.com) content fetching and Google SERP. Requires Python 3.9+.
+An async Python client for [MrScraper](https://mrscraper.com) content fetching, Google SERP, and account status. Requires Python 3.9+.
 
 ## Install and authenticate
 
@@ -11,7 +11,11 @@ python -m pip install -e .
 export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
 ```
 
-These commands install the current checkout. To install version 0.5.0 from PyPI, run `python -m pip install --upgrade mrscraper-sdk==0.5.0`. The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` if you want to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. Both methods are async and must be awaited.
+These commands install the current checkout. To install version 0.6.0 from PyPI, run `python -m pip install --upgrade mrscraper-sdk==0.6.0`. The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` if you want to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. All three methods are async and must be awaited.
+
+## Version 0.6.0
+
+Version 0.6.0 restores `await client.account()` alongside `scraper_api` and `web_search`. Account status includes identity, subscription, token quota, and rate limits, with API keys and billing identifiers excluded.
 
 ## Migrating to 0.5.0
 
@@ -113,6 +117,30 @@ asyncio.run(main())
 | `render_js` | `False` | Render JavaScript features |
 | `timeout` | `600.0` | Request timeout in seconds |
 
+## Account status
+
+```python
+import asyncio
+from mrscraper import MrScraper
+
+async def main():
+    result = await MrScraper().account(timeout=30)
+    print(result["data"]["subscription_status"])
+    print(result["data"]["token_remaining"])
+    print(result["data"]["user"]["email"])
+
+asyncio.run(main())
+```
+
+`account()` sends `GET https://api.app.mrscraper.com/api/v1/subscription-accounts`
+using the client's token in Bearer and `x-api-token` headers. The timeout
+defaults to 30 seconds and must be positive. The response has `status_code`,
+`data`, and `headers` keys. `data` contains `subscription_status`, `enterprise`,
+`token_usage`, `token_limit`, `token_remaining`, `usage_percent`, `rate_limit`,
+`rate_ttl`, `auto_renew`, `ends_at`, and `user` (`name`, `email`, `verified`).
+Remaining tokens are clamped to zero when usage exceeds the limit. API keys,
+billing identifiers, and sensitive response headers are excluded.
+
 ## Smoke test this checkout
 
 `file.py` runs one live request per invocation. Set your token first, then run:
@@ -120,6 +148,7 @@ asyncio.run(main())
 ```bash
 python file.py fetch-content --url "https://example.com" --super
 python file.py google-serp --query "site:example.com" --format json
+python file.py account
 ```
 
 The `fetch-content` command calls `scraper_api()` and enables `screenshot=true` and `warmStart=true` by default. Pass `--super` to enable real device routing; the printed request URL should contain `super=true`. The `google-serp` command calls `web_search()` and requests JSON by default.
@@ -128,19 +157,19 @@ Use `python file.py --help` for the available options. Add `--save-dir manual_re
 
 ## Publishing a release
 
-Publishing is manual. Choose a version that has not been published to PyPI and set it in both `pyproject.toml` and `src/mrscraper/__init__.py`. This checkout is prepared for `0.5.0`. From the repository root, run:
+Publishing is manual. Choose a version that has not been published to PyPI and set it in both `pyproject.toml` and `src/mrscraper/__init__.py`. This checkout is prepared for `0.6.0`. From the repository root, run:
 
 ```bash
 python -m pip install build twine pytest pytest-asyncio
 python -m pip install -e .
 python -m pytest -m "not integration" -q
-python -m build --outdir dist/manual-0.5.0
-ls dist/manual-0.5.0
-python -m twine check dist/manual-0.5.0/mrscraper_sdk-0.5.0*
-python -m twine upload --username __token__ dist/manual-0.5.0/mrscraper_sdk-0.5.0*
+python -m build --outdir dist/manual-0.6.0
+ls dist/manual-0.6.0
+python -m twine check dist/manual-0.6.0/mrscraper_sdk-0.6.0*
+python -m twine upload --username __token__ dist/manual-0.6.0/mrscraper_sdk-0.6.0*
 ```
 
-Before uploading, confirm that `ls` shows only the intended 0.5.0 files. Twine prompts for a [PyPI API token](https://pypi.org/manage/account/#api-tokens) as the password. Do not upload older files from `dist/`.
+Before uploading, confirm that `ls` shows only the intended 0.6.0 files. Twine prompts for a [PyPI API token](https://pypi.org/manage/account/#api-tokens) as the password. Do not upload older files from `dist/`.
 
 ## Errors
 
