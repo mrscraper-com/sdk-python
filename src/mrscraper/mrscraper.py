@@ -19,6 +19,8 @@ _ACCOUNT_URL = "https://api.app.mrscraper.com/api/v1/subscription-accounts"
 _DEFAULT_TIMEOUT = 120
 
 SerpFormat = Literal["json", "html"]
+BrandBundle = Literal["clean", "full", "none"]
+BrandOutput = Literal["html", "bundle", "screenshot", "screenshot_full"]
 
 
 class MrScraper:
@@ -41,7 +43,7 @@ class MrScraper:
 
         async def main():
             client = MrScraper(token="YOUR_TOKEN")
-            result = await client.scraper_api("https://example.com")
+            result = await client.scraper_html("https://example.com")
             print(result["data"])
 
         asyncio.run(main())
@@ -152,8 +154,16 @@ class MrScraper:
                 "Please go to https://app.mrscraper.com to get your token."
             )
 
-        content_type = response.headers.get("content-type", "").lower()
-        data: Any = response.json() if "application/json" in content_type else response.text
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        data: Any
+        if content_type == "application/json" or content_type.endswith("+json"):
+            data = response.json()
+        elif not content_type or content_type.startswith("text/") or content_type in {
+            "application/xml", "application/xhtml+xml", "application/javascript"
+        }:
+            data = response.text
+        else:
+            data = response.content
         return {
             "status_code": response.status_code,
             "data": data,
@@ -242,12 +252,12 @@ class MrScraper:
         }
         return result
 
-    async def scraper_api(
+    async def _scraper_api(
         self,
         url: str,
         *,
-        html: bool = True,
-        markdown: bool = False,
+        html: bool | None = True,
+        markdown: bool | None = False,
         timeout: int = _DEFAULT_TIMEOUT,
         geo_code: str = "US",
         proxy_country: str | None = None,
@@ -257,8 +267,9 @@ class MrScraper:
         use_proxy: bool = True,
         proxy: str | None = None,
         wait_for_selector: str | None = None,
+        wait_until: str | None = None,
         home_page: bool = False,
-        screenshot: bool = False,
+        screenshot: bool | Literal["full"] = False,
         bypass_proxy: bool = False,
         cookie_jar: str | None = None,
         headers: dict[str, str] | str | None = None,
@@ -266,80 +277,60 @@ class MrScraper:
         token_cap: int | None = None,
         stream: bool | None = None,
         discard_token_secret: str = "",
+        method: Literal["POST", "GET"] = "POST",
+        prompt: str | None = None,
+        agent: Literal["general", "listing", "map"] | None = None,
+        max_pages: int | None = None,
+        max_depth: int | None = None,
+        limit: int | None = None,
+        include_patterns: str | None = None,
+        exclude_patterns: str | None = None,
+        action: Literal["brand-scraping"] | None = None,
+        bundle: BrandBundle | None = None,
     ) -> dict[str, Any]:
-        """
-        Fetch page content via the MrScraper stealth browser.
+        """Build requests for the format-specific public scraping methods.
 
-        The service handles JavaScript rendering, bot detection evasion, and
-        optional geolocation proxying for you.
-
-        Page options are sent as query parameters. The JSON body contains the
-        target URL and optional retry controls.
-
-        Args:
-            url: Target URL to scrape (e.g. ``"https://example.com/page"``).
-            timeout: Maximum seconds to wait for the page to load (default 120).
-            geo_code: ISO country code for proxy-based geolocation (default ``"US"``).
-                      Examples: ``"US"``, ``"GB"``, ``"ID"``, ``"SG"``.
-            proxy_country: Compatibility alias sent as ``proxyCountry``.
-            block_resources: When ``True``, images, CSS, and fonts are blocked to
-                             speed up the request (default ``False``).
-            browser_rendering: ``True`` forces browser rendering, ``False`` disables
-                               it, and ``None`` lets the API try without a browser
-                               before falling back to browser rendering. Screenshot
-                               requests always enable browser rendering.
-            super: Use real-device routing independently of browser rendering
-                   (default ``False``).
-            use_proxy: Whether the service may use a configured proxy.
-            proxy: Custom proxy in ``username:password@host:port`` form.
-            wait_for_selector: CSS selector to wait for before returning content.
-            home_page: Visit the site's root page before the target URL.
-                       Sent as ``warmStart=true`` in the query when enabled.
-            screenshot: Capture a screenshot when ``True`` (default ``False``).
-                        Also enables ``browserRendering`` automatically.
-            bypass_proxy: Enable the API's proxy-bypass/resource-blocking behavior.
-            cookie_jar: Cookie configuration string, for example
-                        ``"domain=example.com&country=us&max_used=100&max_age=50m"``.
-            headers: Target request headers as a JSON string or Python dictionary.
-            max_retries: Maximum Web Unblocker retries (default 3).
-            token_cap: Optional retry-token budget.
-            stream: Ask the API for a streamed response. The SDK buffers it into
-                    the normal response dictionary.
-            discard_token_secret: Optional value sent through the
-                                  ``x-discard-token-secret`` request header.
-
-        Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
-            The API response in ``data`` may include HTML, Markdown, a
-            screenshot, or a combination, depending on the requested options.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.scraper_api(
-                "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
-                geo_code="US",
-                timeout=120,
-            )
-            print(result["data"])  # raw HTML string
+        Only selected output flags are sent. Screenshot GETs and brand requests
+        carry retry controls in the query; other POSTs carry them in JSON.
         """
         self._validate_token()
-        if timeout < 1 or timeout > 300:
+        if not math.isfinite(timeout) or timeout < 1 or timeout > 300:
             raise ValueError("timeout must be between 1 and 300 seconds")
         if max_retries < 0:
             raise ValueError("max_retries must be greater than or equal to 0")
         if token_cap is not None and token_cap < 0:
             raise ValueError("token_cap must be greater than or equal to 0")
-        if not isinstance(screenshot, bool):
-            raise ValueError("screenshot must be a boolean")
+        if not isinstance(screenshot, bool) and screenshot != "full":
+            raise ValueError("screenshot must be a boolean or 'full'")
+        for name, value, minimum in (
+            ("max_pages", max_pages, 1),
+            ("max_depth", max_depth, 0),
+            ("limit", limit, 1),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < minimum
+            ):
+                raise ValueError(f"{name} must be an integer greater than or equal to {minimum}")
+        if bundle is not None and bundle not in ("clean", "full", "none"):
+            raise ValueError("bundle must be 'clean', 'full', or 'none'")
         if not isinstance(super, bool):
             raise ValueError("super must be a boolean")
         effective_browser_rendering = True if screenshot else browser_rendering
-        payload = self._compact({"url": url, "maxRetries": max_retries, "tokenCap": token_cap})
+        query_retries = method == "GET" or action == "brand-scraping"
+        payload = self._compact(
+            {
+                "url": url,
+                "maxRetries": None if query_retries else max_retries,
+                "tokenCap": None if query_retries else token_cap,
+                "prompt": prompt,
+                "agent": agent,
+                "maxPages": max_pages,
+                "maxDepth": max_depth,
+                "limit": limit,
+                "includePatterns": include_patterns,
+                "excludePatterns": exclude_patterns,
+            }
+        )
         request_headers = self._bearer_auth_headers()
         if discard_token_secret:
             request_headers["x-discard-token-secret"] = discard_token_secret
@@ -356,13 +347,19 @@ class MrScraper:
                 "html": html,
                 "markdown": markdown,
                 "waitForSelector": wait_for_selector,
+                "waitUntil": wait_until,
                 "warmStart": True if home_page else None,
-                "screenshot": True if screenshot else None,
+                "screenshot": screenshot if screenshot else None,
                 "blockResources": True if block_resources else None,
                 "bypassProxy": True if bypass_proxy else None,
                 "cookieJar": cookie_jar,
                 "headers": json.dumps(headers) if isinstance(headers, dict) else headers,
                 "stream": stream,
+                "url": url if query_retries else None,
+                "maxRetries": max_retries if query_retries else None,
+                "tokenCap": token_cap if query_retries else None,
+                "action": action,
+                "bundle": bundle,
             }
         )
         encoded_query = {
@@ -371,12 +368,432 @@ class MrScraper:
         }
         endpoint = f"{_FETCH_BASE_URL}?{urlencode(encoded_query)}"
         return await self._request(
-            "POST",
+            method,
             endpoint,
-            payload=payload,
+            payload=None if method == "GET" else payload,
             headers=request_headers,
             timeout=float(timeout + 30),
         )
+
+    async def scraper_html(
+        self,
+        url: str,
+        *,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Fetch HTML with ``html=true``; omit Markdown and screenshot flags.
+
+        ``home_page`` maps to ``warmStart``. Shared page, proxy, header, and
+        retry controls are supported by all scraping methods. The response
+        has ``status_code``, ``data``, and ``headers`` keys.
+        """
+        return await self._scraper_api(
+            url,
+            html=True,
+            markdown=None,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def scraper_markdown(
+        self,
+        url: str,
+        *,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Fetch Markdown with ``markdown=true``; omit HTML and screenshot flags.
+
+        Returns the usual ``status_code``, ``data``, and ``headers`` wrapper.
+        """
+        return await self._scraper_api(
+            url,
+            html=None,
+            markdown=True,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def get_screenshot(
+        self,
+        url: str,
+        *,
+        full_page: bool = True,
+        timeout: int = 300,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = "domcontentloaded",
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Capture a screenshot using GET with browser rendering enabled.
+
+        ``full_page=True`` sends ``screenshot=full``; ``False`` sends
+        ``screenshot=true``. The target URL and retry controls go in the query.
+        HTML and Markdown flags are omitted. Image responses are returned as
+        bytes in ``data``; JSON responses retain the API's original structure.
+        """
+        if not isinstance(full_page, bool):
+            raise ValueError("full_page must be a boolean")
+        return await self._scraper_api(
+            url,
+            method="GET",
+            html=None,
+            markdown=None,
+            screenshot="full" if full_page else True,
+            browser_rendering=True,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def scraper_json(
+        self,
+        url: str,
+        prompt: str = "Extract all data as complete as possible.",
+        *,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Extract structured data with ``agent=general`` and ``html=true``.
+
+        ``prompt`` is sent in the JSON body. Markdown and screenshot flags
+        are omitted. JSON responses are parsed into Python values in ``data``.
+        """
+        return await self._scraper_api(
+            url,
+            html=True,
+            markdown=None,
+            agent="general",
+            prompt=prompt,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def scraper_multiple_page(
+        self,
+        url: str,
+        prompt: str = "Extract all entry data as complete as possible.",
+        *,
+        max_pages: int = 3,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Extract entries across pages using ``agent=listing``.
+
+        ``prompt`` and ``maxPages`` are JSON body fields. Output flags are
+        omitted. ``max_pages`` must be a positive integer.
+        """
+        return await self._scraper_api(
+            url,
+            html=None,
+            markdown=None,
+            agent="listing",
+            prompt=prompt,
+            max_pages=max_pages,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def scraper_sitemap(
+        self,
+        url: str,
+        *,
+        max_depth: int = 2,
+        max_pages: int = 3,
+        limit: int = 1000,
+        include_patterns: str | None = None,
+        exclude_patterns: str | None = None,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Discover URLs using ``agent=map`` and optional URL patterns.
+
+        ``max_depth``, ``max_pages``, and ``limit`` map to ``maxDepth``,
+        ``maxPages``, and ``limit`` in the JSON body. ``include_patterns`` and
+        ``exclude_patterns`` map to ``includePatterns`` and ``excludePatterns``.
+        Pattern strings are preserved as supplied; unset patterns are omitted.
+        No HTML, Markdown, or screenshot flags are sent.
+        """
+        return await self._scraper_api(
+            url,
+            html=None,
+            markdown=None,
+            agent="map",
+            max_depth=max_depth,
+            max_pages=max_pages,
+            limit=limit,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def scrape_brand(
+        self,
+        url: str,
+        *,
+        bundle: BrandBundle = "clean",
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """Start brand scraping with a ``clean``, ``full``, or ``none`` bundle.
+
+        The query contains ``action=brand-scraping``, ``bundle``, and ``url``;
+        the JSON body contains ``url``. Use the returned job ID with
+        :meth:`get_brand` to read the job or download an output.
+        """
+        return await self._scraper_api(
+            url,
+            html=None,
+            markdown=None,
+            action="brand-scraping",
+            bundle=bundle,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def get_brand(
+        self,
+        job_id: str,
+        *,
+        output: BrandOutput | None = None,
+        timeout: float = 600.0,
+    ) -> dict[str, Any]:
+        """Read a brand job or download one of its outputs.
+
+        ``output`` accepts ``html``, ``bundle``, ``screenshot``, or
+        ``screenshot_full``. Omit it to read job data. The return value uses
+        the usual response wrapper: JSON becomes Python values, HTML becomes
+        text, and ZIP/image downloads remain bytes in ``data``.
+        """
+        self._validate_token()
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError("job_id must be a non-empty string")
+        if output is not None and output not in ("html", "bundle", "screenshot", "screenshot_full"):
+            raise ValueError("output must be 'html', 'bundle', 'screenshot', or 'screenshot_full'")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be greater than 0 seconds")
+        query = urlencode(self._compact({"id": job_id, "output": output}))
+        return await self._request("GET", f"{_FETCH_BASE_URL}/neo/brand?{query}", timeout=timeout)
 
     async def web_search(
         self,

@@ -7,10 +7,11 @@ All API responses are automatically saved into debug_results/*.json
 
 from __future__ import annotations
 
-import os
 import json
-import pytest
+import os
 from datetime import datetime
+
+import pytest
 
 from mrscraper import MrScraper
 from mrscraper.exceptions import AuthenticationError
@@ -50,21 +51,21 @@ def client(token):
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestFetchHtmlReal:
-    async def test_scraper_api_returns_200_and_html(self, client):
-        result = await client.scraper_api("https://books.toscrape.com/")
-        save_result("scraper_api_basic", result)
+    async def test_scraper_html_returns_200_and_html(self, client):
+        result = await client.scraper_html("https://books.toscrape.com/")
+        save_result("scraper_html_basic", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
         assert "data" in result
         assert "<html" in result["data"].lower()
 
-    async def test_scraper_api_respects_geo_code(self, client):
-        result = await client.scraper_api(
+    async def test_scraper_html_respects_geo_code(self, client):
+        result = await client.scraper_html(
             "https://books.toscrape.com/",
             geo_code="US",
         )
-        save_result("scraper_api_geo_us", result)
+        save_result("scraper_html_geo_us", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
@@ -92,4 +93,4 @@ class TestInvalidToken:
     async def test_invalid_token_raises_authentication_error(self):
         client = MrScraper("INVALID_MRSCRAPER_API_TOKEN")
         with pytest.raises(AuthenticationError):
-            await client.scraper_api("https://books.toscrape.com/")
+            await client.scraper_html("https://books.toscrape.com/")

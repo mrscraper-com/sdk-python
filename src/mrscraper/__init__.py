@@ -11,7 +11,7 @@ Quickstart::
 
     async def main():
         client = MrScraper(token="MRSCRAPER_API_TOKEN")
-        result = await client.scraper_api("https://example.com")
+        result = await client.scraper_html("https://example.com")
         print(result["data"])
 
     asyncio.run(main())
@@ -28,4 +28,4 @@ __all__ = [
     "NetworkError",
 ]
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     actions = parser.add_mutually_exclusive_group(required=True)
     for flag, name in (
-        ("fetch-html", "scraper_api"),
+        ("fetch-html", "scraper_html"),
         ("google-serp", "web_search"),
         ("create-ai", "create_ai"),
         ("rerun-ai", "rerun_ai"),
@@ -105,10 +105,10 @@ def target_agent(args: argparse.Namespace) -> str:
     return args.agent or ("general" if args.target == "detail" else "listing")
 
 
-async def test_scraper_api(client: Any, args: argparse.Namespace) -> dict[str, Any]:
-    return await client.scraper_api(
-        target_url(args), home_page=args.home_page, html=args.html,
-        markdown=args.markdown, proxy_country=args.proxy_country, timeout=args.timeout,
+async def test_scraper_html(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    return await client.scraper_html(
+        target_url(args), home_page=args.home_page,
+        proxy_country=args.proxy_country, timeout=args.timeout,
     )
 
 
@@ -183,7 +183,7 @@ async def test_get_analytics(client: Any, args: argparse.Namespace) -> dict[str,
 
 
 TESTS = {
-    "scraper_api": test_scraper_api,
+    "scraper_html": test_scraper_html,
     "web_search": test_web_search,
     "create_ai": test_create_ai,
     "rerun_ai": test_rerun_ai,
@@ -234,7 +234,7 @@ async def main() -> int:
         parser.error(f"cannot import mrscraper: {exc}. Install it or use --local")
     print(f"PACKAGE: {package.__file__}")
     print(f"TEST: {args.action}")
-    if args.action in {"scraper_api", "create_ai", "rerun_ai", "rerun_manual"}:
+    if args.action in {"scraper_html", "create_ai", "rerun_ai", "rerun_manual"}:
         print(f"TARGET: {target_url(args)} | home_page={args.home_page}")
 
     async with httpx.AsyncClient(event_hooks={"request": [show_request]}) as http_client:

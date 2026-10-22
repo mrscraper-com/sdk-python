@@ -1,12 +1,16 @@
-"""Tests for the local smoke-test CLI."""
+"""Checks shared by the local smoke-test runners.
+
+The developer-only runner is not included in source distributions.
+"""
 
 import json
 
 import httpx
 import pytest
 
-import file as smoke_test
 from mrscraper import MrScraper
+
+smoke_test = pytest.importorskip("file", reason="Local smoke runner is not shipped in the sdist")
 
 
 @pytest.mark.asyncio
@@ -23,48 +27,14 @@ async def test_account_command_checks_subscription():
 
 
 @pytest.mark.asyncio
-async def test_scraper_api_super_flag_sets_query_parameter():
-    requests = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={"ok": True})
-
-    args = smoke_test.build_parser().parse_args(
-        ["fetch-content", "--url", "https://example.com", "--super"]
-    )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-        await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
-
-    assert requests[0].url.params["super"] == "true"
-
-
-@pytest.mark.asyncio
-async def test_scraper_api_without_super_omits_query_parameter():
-    requests = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={"ok": True})
-
-    args = smoke_test.build_parser().parse_args(["fetch-content", "--url", "https://example.com"])
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-        await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
-
-    assert "super" not in requests[0].url.params
-
-
-@pytest.mark.asyncio
 async def test_web_search_command_calls_renamed_method():
     requests = []
 
-    async def handler(request: httpx.Request) -> httpx.Response:
+    async def handler(request):
         requests.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    args = smoke_test.build_parser().parse_args(
-        ["google-serp", "--query", "python web scraping"]
-    )
+    args = smoke_test.build_parser().parse_args(["google-serp", "--query", "python web scraping"])
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
         await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
 
