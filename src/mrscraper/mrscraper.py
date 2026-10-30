@@ -86,10 +86,10 @@ class MrScraper:
 
     @staticmethod
     def _normalize_serp_input(value: str) -> tuple[str, str | None, str | None, int | None]:
-        """Normalize a query or Google URL into the v2 SERP request fields."""
+        """Normalize search input into query, country, language, and page values."""
         value = value.strip()
         if not value:
-            raise ValueError("A Google search query or URL is required")
+            raise ValueError("A search query is required")
 
         parsed = urlparse(value)
         if parsed.scheme.lower() in {"http", "https"}:
@@ -97,7 +97,7 @@ class MrScraper:
             query_values = params.get("q")
             query = query_values[0].strip() if query_values else ""
             if not query:
-                raise ValueError("Google search URL must contain a q parameter")
+                raise ValueError("Search URL must contain a q parameter")
             start_values = params.get("start")
             try:
                 start = int(start_values[0]) if start_values else 0
@@ -808,18 +808,17 @@ class MrScraper:
         timeout: float = 600.0,
     ) -> dict[str, Any]:
         """
-        Fetch Google search results (SERP) synchronously.
+        Search the web to retrieve real-time search results, including relevant website URLs, titles, descriptions, and related questions based on a given query.
 
         Args:
-            url: Google query text or a full Google search URL. The parameter name
-                 is retained for backward compatibility.
+            url: The search query.
             raw: Deprecated compatibility alias for ``format="html"``. It takes
                  precedence over ``format`` (default ``True`` for compatibility).
-            region: Optional country code. Overrides ``gl`` from a Google URL.
-            language: Optional language code. Overrides ``hl`` from a Google URL.
-            page: Optional one-based result page. Overrides ``start`` from a URL.
+            region: Optional country code for search results.
+            language: Optional language code for search results.
+            page: Optional results page number, starting at 1.
             format: Response representation, ``"json"`` or ``"html"``.
-            render_js: Render JavaScript-dependent Google result features.
+            render_js: Render JavaScript-dependent search features.
             timeout: Maximum seconds to wait for the request (default 600).
 
         Returns:
@@ -833,7 +832,7 @@ class MrScraper:
         Example::
 
             result = await client.web_search(
-                "https://www.google.com/search?q=iphone+17",
+                "python web scraping",
                 raw=True,
             )
             print(result["data"])
