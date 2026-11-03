@@ -22,14 +22,14 @@ The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="
 | Method | Purpose |
 |--------|---------|
 | `scraper_api(url, ...)` | Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination |
-| `web_search(query, ...)` | Search the web for real-time results: website URLs, titles, descriptions, and related questions |
+| `web_search(query, ...)` | Search the web for real-time results: website URLs, titles, and descriptions |
 | `account(...)` | Read account identity, subscription, quota, and rate limits |
 
 Every method returns a dictionary with `status_code`, `data`, and `headers` keys. JSON responses become Python values, text responses remain strings, and binary downloads remain bytes in `data`.
 
 ### Migrating from 0.7.x
 
-Version 0.8.0 returns to three public methods. The format-specific methods from 0.7.x are no longer public; use `scraper_api` with output flags instead:
+Version 0.9.0 returns to three public methods. The format-specific methods from 0.7.x are no longer public; use `scraper_api` with output flags instead:
 
 | Previous call | Replacement |
 |---------------|-------------|
@@ -89,7 +89,7 @@ Options set to `None` use the service defaults. Set `use_proxy=False` to disable
 
 ## Web Search
 
-Web Search searches the web and returns real-time results, including relevant website URLs, titles, descriptions, and related questions for a given query.
+Web Search searches the web for real-time results: website URLs, titles, and descriptions.
 
 ```python
 import asyncio
@@ -169,23 +169,23 @@ python file.py web-search --query "e-menessaptieka.lv linkedin" --country us --n
 
 ## Publishing a release
 
-Version 0.8.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. From the repository root, validate and build the release:
+Version 0.9.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. From the repository root, validate and build the release:
 
 ```bash
 python -m pip install build twine pytest pytest-asyncio respx
 python -m pip install -e .
 python -m pytest -m "not integration" -q
-python -m build --outdir dist/manual-0.8.0
-python -m twine check dist/manual-0.8.0/mrscraper_sdk-0.8.0-py3-none-any.whl dist/manual-0.8.0/mrscraper_sdk-0.8.0.tar.gz
+python -m build --outdir dist/manual-0.9.0
+python -m twine check dist/manual-0.9.0/mrscraper_sdk-0.9.0-py3-none-any.whl dist/manual-0.9.0/mrscraper_sdk-0.9.0.tar.gz
 ```
 
 Upload those two artifacts when ready to publish:
 
 ```bash
-python -m twine upload --username __token__ dist/manual-0.8.0/mrscraper_sdk-0.8.0-py3-none-any.whl dist/manual-0.8.0/mrscraper_sdk-0.8.0.tar.gz
+python -m twine upload --username __token__ dist/manual-0.9.0/mrscraper_sdk-0.9.0-py3-none-any.whl dist/manual-0.9.0/mrscraper_sdk-0.9.0.tar.gz
 ```
 
-Twine prompts for your PyPI API token as the password. The upload command selects only version 0.8.0's wheel and source distribution. Choose a new version and update both version fields and artifact names for the next release. Documentation updates can use a patch version; new features generally use a minor version.
+Twine prompts for your PyPI API token as the password. The upload command selects only version 0.9.0's wheel and source distribution. Choose a new version and update both version fields and artifact names for the next release. Documentation updates can use a patch version; new features generally use a minor version.
 
 ## Errors
 
