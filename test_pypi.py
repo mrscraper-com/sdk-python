@@ -2,7 +2,7 @@
 
 Examples:
     export MRSCRAPER_API_TOKEN="your-token"
-    python test_pypi.py --fetch-html
+    python test_pypi.py --scraper-api
     python test_pypi.py --get-account
     python test_pypi.py --create-ai --target detail --local
     python test_pypi.py --create-ai --target listing --local
@@ -47,8 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     actions = parser.add_mutually_exclusive_group(required=True)
     for flag, name in (
-        ("fetch-html", "scraper_html"),
-        ("google-serp", "web_search"),
+        ("scraper-api", "scraper_api"),
+        ("web-search", "web_search"),
         ("create-ai", "create_ai"),
         ("rerun-ai", "rerun_ai"),
         ("bulk-rerun-ai", "bulk_rerun_ai"),
@@ -105,15 +105,15 @@ def target_agent(args: argparse.Namespace) -> str:
     return args.agent or ("general" if args.target == "detail" else "listing")
 
 
-async def test_scraper_html(client: Any, args: argparse.Namespace) -> dict[str, Any]:
-    return await client.scraper_html(
-        target_url(args), home_page=args.home_page,
+async def test_scraper_api(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    return await client.scraper_api(
+        target_url(args), html=args.html, markdown=args.markdown, home_page=args.home_page,
         proxy_country=args.proxy_country, timeout=args.timeout,
     )
 
 
 async def test_web_search(client: Any, args: argparse.Namespace) -> dict[str, Any]:
-    return await client.web_search(args.query, raw=False)
+    return await client.web_search(args.query)
 
 
 async def test_create_ai(client: Any, args: argparse.Namespace) -> dict[str, Any]:
@@ -183,7 +183,7 @@ async def test_get_analytics(client: Any, args: argparse.Namespace) -> dict[str,
 
 
 TESTS = {
-    "scraper_html": test_scraper_html,
+    "scraper_api": test_scraper_api,
     "web_search": test_web_search,
     "create_ai": test_create_ai,
     "rerun_ai": test_rerun_ai,
@@ -234,7 +234,7 @@ async def main() -> int:
         parser.error(f"cannot import mrscraper: {exc}. Install it or use --local")
     print(f"PACKAGE: {package.__file__}")
     print(f"TEST: {args.action}")
-    if args.action in {"scraper_html", "create_ai", "rerun_ai", "rerun_manual"}:
+    if args.action in {"scraper_api", "create_ai", "rerun_ai", "rerun_manual"}:
         print(f"TARGET: {target_url(args)} | home_page={args.home_page}")
 
     async with httpx.AsyncClient(event_hooks={"request": [show_request]}) as http_client:

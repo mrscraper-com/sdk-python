@@ -34,9 +34,40 @@ async def test_web_search_command_calls_renamed_method():
         requests.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    args = smoke_test.build_parser().parse_args(["google-serp", "--query", "python web scraping"])
+    args = smoke_test.build_parser().parse_args(
+        ["web_search", "--query", "python web scraping", "--country", "us", "--num-results", "20"]
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
         await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
 
-    assert requests[0].url.path == "/api/google/serp/v2/sync"
-    assert json.loads(requests[0].content)["query"] == "python web scraping"
+    assert requests[0].url.path == "/"
+    assert json.loads(requests[0].content) == {
+        "action": "websearch",
+        "query": "python web scraping",
+        "country": "us",
+        "numResults": 20,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scraper_api_command_requests_selected_outputs():
+    requests = []
+
+    async def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    args = smoke_test.build_parser().parse_args(
+        ["scraper-api", "--url", "https://example.com", "--markdown", "--screenshot"]
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        await smoke_test.run_method(MrScraper("test-token", http_client=http_client), args)
+
+    params = requests[0].url.params
+    assert requests[0].method == "GET"
+    assert params["url"] == "https://example.com"
+    assert params["html"] == params["markdown"] == params["screenshot"] == "true"
+
+
+def test_all_mode_runs_only_public_methods():
+    assert smoke_test.METHOD_ORDER == ("account", "scraper-api", "web-search")

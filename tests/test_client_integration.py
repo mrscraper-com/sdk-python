@@ -1,7 +1,7 @@
 """
-Integration tests for the two MrScraper services against the real API.
+Integration tests for the public MrScraper methods against the real API.
 
-These tests make real HTTP requests to api.mrscraper.com and sync.scraper.mrscraper.com.
+These tests make real HTTP requests to api.mrscraper.com.
 All API responses are automatically saved into debug_results/*.json
 """
 
@@ -16,7 +16,7 @@ import pytest
 from mrscraper import MrScraper
 from mrscraper.exceptions import AuthenticationError
 
-REAL_TOKEN = os.environ.get("MRSCRAPER_TOKEN", "")
+REAL_TOKEN = os.environ.get("MRSCRAPER_TOKEN") or os.environ.get("MRSCRAPER_API_TOKEN", "")
 DEBUG_DIR = os.environ.get(
     "MRSCRAPER_DEBUG_DIR",
     os.path.join(os.path.dirname(__file__), "debug_results"),
@@ -50,41 +50,55 @@ def client(token):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-class TestFetchHtmlReal:
-    async def test_scraper_html_returns_200_and_html(self, client):
-        result = await client.scraper_html("https://books.toscrape.com/")
-        save_result("scraper_html_basic", result)
+class TestScraperApiReal:
+    async def test_scraper_api_returns_200_and_html(self, client):
+        result = await client.scraper_api("https://books.toscrape.com/")
+        save_result("scraper_api_basic", result)
 
         assert isinstance(result, dict)
         assert result["status_code"] == 200
         assert "data" in result
         assert "<html" in result["data"].lower()
 
-    async def test_scraper_html_respects_geo_code(self, client):
-        result = await client.scraper_html(
+    async def test_scraper_api_returns_combined_outputs(self, client):
+        result = await client.scraper_api(
             "https://books.toscrape.com/",
+            html=True,
+            markdown=True,
             geo_code="US",
         )
-        save_result("scraper_html_geo_us", result)
+        save_result("scraper_api_html_markdown", result)
 
-        assert isinstance(result, dict)
         assert result["status_code"] == 200
-        assert "data" in result
+        assert "<html" in result["data"]["html"].lower()
+        assert result["data"]["markdown"]
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-class TestFetchGoogleSerpReal:
-    async def test_web_search_returns_data(self, client):
+class TestWebSearchReal:
+    async def test_web_search_returns_results(self, client):
         result = await client.web_search(
-            "https://www.google.com/search?q=iphone+17",
-            raw=True,
+            "e-menessaptieka.lv linkedin",
+            country="us",
+            num_results=10,
         )
         save_result("web_search", result)
 
-        assert isinstance(result, dict)
         assert result["status_code"] == 200
-        assert "data" in result
+        assert result["data"]["success"] is True
+        first = result["data"]["data"][0]
+        assert {"rank", "title", "url", "description"} <= first.keys()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestAccountReal:
+    async def test_account_returns_summary(self, client):
+        result = await client.account()
+
+        assert result["status_code"] == 200
+        assert "token_remaining" in result["data"]
 
 
 @pytest.mark.integration
@@ -93,4 +107,4 @@ class TestInvalidToken:
     async def test_invalid_token_raises_authentication_error(self):
         client = MrScraper("INVALID_MRSCRAPER_API_TOKEN")
         with pytest.raises(AuthenticationError):
-            await client.scraper_html("https://books.toscrape.com/")
+            await client.scraper_api("https://books.toscrape.com/")

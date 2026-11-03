@@ -27,18 +27,24 @@ def payload(request: httpx.Request):
     return json.loads(request.content) if request.content else None
 
 
-def test_scraper_api_is_internal_and_output_choices_are_not_public_controls():
-    assert not hasattr(MrScraper, "scraper_api")
-    assert callable(MrScraper._scraper_api)
+def test_only_scraper_api_web_search_and_account_are_public():
+    public = {
+        name for name, value in vars(MrScraper).items()
+        if not name.startswith("_") and callable(value)
+    }
+    assert public == {"scraper_api", "web_search", "account"}
+
+
+def test_private_helpers_select_their_own_output():
     for method in (
-        "scraper_html", "scraper_markdown", "get_screenshot", "scraper_json",
-        "scraper_multiple_page", "scraper_sitemap", "scrape_brand",
+        "_scraper_html", "_scraper_markdown", "_get_screenshot", "_scraper_json",
+        "_scraper_multiple_page", "_scraper_sitemap", "_scrape_brand",
     ):
         parameters = inspect.signature(getattr(MrScraper, method)).parameters
         assert not {"html", "markdown", "screenshot"}.intersection(parameters)
 
 
-@pytest.mark.parametrize("method,output", [("scraper_html", "html"), ("scraper_markdown", "markdown")])
+@pytest.mark.parametrize("method,output", [("_scraper_html", "html"), ("_scraper_markdown", "markdown")])
 async def test_content_method_requests_only_its_output(recorded_client, method, output):
     client, requests = recorded_client
 
@@ -60,7 +66,7 @@ async def test_content_method_requests_only_its_output(recorded_client, method, 
 
 @pytest.mark.parametrize(
     "method",
-    ["scraper_html", "scraper_markdown", "scraper_json", "scraper_multiple_page", "scraper_sitemap", "scrape_brand"],
+    ["_scraper_html", "_scraper_markdown", "_scraper_json", "_scraper_multiple_page", "_scraper_sitemap", "_scrape_brand"],
 )
 async def test_scraping_methods_forward_shared_controls(recorded_client, method):
     client, requests = recorded_client
@@ -103,7 +109,7 @@ async def test_scraping_methods_forward_shared_controls(recorded_client, method)
     assert json.loads(params["headers"]) == {"accept-language": "en-US"}
     assert params["stream"] == "true"
     assert request.headers["x-discard-token-secret"] == "discard-secret"
-    controls = params if method == "scrape_brand" else payload(request)
+    controls = params if method == "_scrape_brand" else payload(request)
     assert str(controls["maxRetries"]) == "4"
     assert str(controls["tokenCap"]) == "30"
 
@@ -112,7 +118,7 @@ async def test_scraping_methods_forward_shared_controls(recorded_client, method)
 async def test_screenshot_uses_get_and_browser_defaults(recorded_client, full_page, expected):
     client, requests = recorded_client
 
-    await client.get_screenshot(
+    await client._get_screenshot(
         "https://example.com/page?a=one&b=two", full_page=full_page, token_cap=30,
     )
 
@@ -134,7 +140,7 @@ async def test_screenshot_uses_get_and_browser_defaults(recorded_client, full_pa
 async def test_screenshot_supports_wait_controls(recorded_client):
     client, requests = recorded_client
 
-    await client.get_screenshot(
+    await client._get_screenshot(
         "https://example.com", wait_until="networkidle", timeout=90, max_retries=0,
     )
 
@@ -149,16 +155,16 @@ async def test_screenshot_supports_wait_controls(recorded_client):
 @pytest.mark.parametrize(
     "method,body,output",
     [
-        ("scraper_json", {
+        ("_scraper_json", {
             "url": "https://example.com", "maxRetries": 3,
             "prompt": "Extract all data as complete as possible.", "agent": "general",
         }, "html"),
-        ("scraper_multiple_page", {
+        ("_scraper_multiple_page", {
             "url": "https://example.com", "maxRetries": 3,
             "prompt": "Extract all entry data as complete as possible.",
             "agent": "listing", "maxPages": 3,
         }, None),
-        ("scraper_sitemap", {
+        ("_scraper_sitemap", {
             "url": "https://example.com", "maxRetries": 3,
             "agent": "map", "maxDepth": 2, "maxPages": 3, "limit": 1000,
         }, None),
@@ -182,9 +188,9 @@ async def test_agent_methods_have_correct_defaults(recorded_client, method, body
 async def test_agent_methods_forward_extraction_controls(recorded_client):
     client, requests = recorded_client
 
-    await client.scraper_json("https://example.com", prompt="Extract prices.")
-    await client.scraper_multiple_page("https://example.com", prompt="Extract titles.", max_pages=8)
-    await client.scraper_sitemap("https://example.com", max_depth=4, max_pages=10, limit=50)
+    await client._scraper_json("https://example.com", prompt="Extract prices.")
+    await client._scraper_multiple_page("https://example.com", prompt="Extract titles.", max_pages=8)
+    await client._scraper_sitemap("https://example.com", max_depth=4, max_pages=10, limit=50)
 
     assert payload(requests[0])["prompt"] == "Extract prices."
     assert payload(requests[1])["prompt"] == "Extract titles."
@@ -207,7 +213,7 @@ async def test_sitemap_preserves_optional_pattern_strings(
 ):
     client, requests = recorded_client
 
-    await client.scraper_sitemap(
+    await client._scraper_sitemap(
         "https://example.com", include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
     )
@@ -226,7 +232,7 @@ async def test_sitemap_preserves_optional_pattern_strings(
 async def test_brand_scraping_posts_action_bundle_and_target_url(recorded_client, bundle):
     client, requests = recorded_client
 
-    await client.scrape_brand("https://example.com/brand?a=1&b=2", bundle=bundle)
+    await client._scrape_brand("https://example.com/brand?a=1&b=2", bundle=bundle)
 
     request = requests[0]
     assert request.method == "POST"
@@ -239,7 +245,7 @@ async def test_brand_scraping_posts_action_bundle_and_target_url(recorded_client
 
 async def test_brand_scraping_defaults_to_clean_bundle(recorded_client):
     client, requests = recorded_client
-    await client.scrape_brand("https://example.com")
+    await client._scrape_brand("https://example.com")
     assert requests[0].url.params["bundle"] == "clean"
 
 
@@ -247,7 +253,7 @@ async def test_brand_scraping_defaults_to_clean_bundle(recorded_client):
 async def test_get_brand_uses_job_id_and_optional_output(recorded_client, output):
     client, requests = recorded_client
 
-    await client.get_brand("job/123+abc", output=output, timeout=42)
+    await client._get_brand("job/123+abc", output=output, timeout=42)
 
     request = requests[0]
     assert request.method == "GET"
@@ -265,10 +271,10 @@ async def test_get_brand_uses_job_id_and_optional_output(recorded_client, output
 @pytest.mark.parametrize(
     "method,kwargs,content_type,content",
     [
-        ("get_screenshot", {}, "image/png", b"\x89PNG\r\n\x1a\n\x00\xff"),
-        ("get_brand", {"output": "bundle"}, "application/zip", b"PK\x03\x04\x00\xff"),
-        ("get_brand", {"output": "screenshot_full"}, "image/jpeg", b"\xff\xd8\xff\x00"),
-        ("get_brand", {"output": "html"}, "text/html; charset=utf-8", b"<html>brand</html>"),
+        ("_get_screenshot", {}, "image/png", b"\x89PNG\r\n\x1a\n\x00\xff"),
+        ("_get_brand", {"output": "bundle"}, "application/zip", b"PK\x03\x04\x00\xff"),
+        ("_get_brand", {"output": "screenshot_full"}, "image/jpeg", b"\xff\xd8\xff\x00"),
+        ("_get_brand", {"output": "html"}, "text/html; charset=utf-8", b"<html>brand</html>"),
     ],
 )
 async def test_downloads_preserve_binary_data_and_html_text(method, kwargs, content_type, content):
@@ -277,7 +283,7 @@ async def test_downloads_preserve_binary_data_and_html_text(method, kwargs, cont
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
         client = MrScraper("test-token", http_client=http_client)
-        target = "https://example.com" if method == "get_screenshot" else "job-123"
+        target = "https://example.com" if method == "_get_screenshot" else "job-123"
         result = await getattr(client, method)(target, **kwargs)
 
     expected = content.decode() if content_type.startswith("text/") else content
@@ -288,10 +294,10 @@ async def test_downloads_preserve_binary_data_and_html_text(method, kwargs, cont
 @pytest.mark.parametrize(
     "method,kwargs",
     [
-        ("scrape_brand", {"bundle": "invalid"}),
-        ("get_brand", {"output": "invalid"}),
-        ("get_brand", {"timeout": 0}),
-        ("get_brand", {"timeout": float("nan")}),
+        ("_scrape_brand", {"bundle": "invalid"}),
+        ("_get_brand", {"output": "invalid"}),
+        ("_get_brand", {"timeout": 0}),
+        ("_get_brand", {"timeout": float("nan")}),
     ],
 )
 async def test_brand_methods_reject_invalid_controls_before_request(recorded_client, method, kwargs):

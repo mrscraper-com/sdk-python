@@ -2,7 +2,7 @@
 
 ![](./mrscraper.jpeg)
 
-An async Python client for [MrScraper](https://mrscraper.com) page scraping, structured extraction, brand scraping, Web Search, and account status. Requires Python 3.9+.
+An async Python client for [MrScraper](https://mrscraper.com) page scraping, Web Search, and account status. Requires Python 3.9+.
 
 ## Install and authenticate
 
@@ -21,34 +21,28 @@ The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="
 
 | Method | Purpose |
 |--------|---------|
-| `scraper_html(url, ...)` | Retrieve HTML |
-| `scraper_markdown(url, ...)` | Retrieve Markdown |
-| `get_screenshot(url, ...)` | Capture a full-page or viewport screenshot |
-| `scraper_json(url, prompt=..., ...)` | Extract structured data using the general agent |
-| `scraper_multiple_page(url, prompt=..., ...)` | Extract entries using the listing agent |
-| `scraper_sitemap(url, ...)` | Discover URLs using the map agent |
-| `scrape_brand(url, bundle="clean", ...)` | Start a brand scraping job |
-| `get_brand(job_id, output=None, ...)` | Read a brand job or download an output |
-| `web_search(url, ...)` | Retrieve real-time web search results |
+| `scraper_api(url, ...)` | Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination |
+| `web_search(query, ...)` | Search the web for real-time results: website URLs, titles, descriptions, and related questions |
 | `account(...)` | Read account identity, subscription, quota, and rate limits |
 
-Each method selects its output format. Public parameters do not include `html`, `markdown`, or `screenshot` flags.
+Every method returns a dictionary with `status_code`, `data`, and `headers` keys. JSON responses become Python values, text responses remain strings, and binary downloads remain bytes in `data`.
 
-### Migrating from 0.6.x
+### Migrating from 0.7.x
 
-Version 0.7.0 removes the public `scraper_api` method. The shared implementation is now private as `_scraper_api`; applications should use the public method for the desired output:
+Version 0.8.0 returns to three public methods. The format-specific methods from 0.7.x are no longer public; use `scraper_api` with output flags instead:
 
 | Previous call | Replacement |
 |---------------|-------------|
-| `client.scraper_api(url)` | `client.scraper_html(url)` |
-| `client.scraper_api(url, html=False, markdown=True)` | `client.scraper_markdown(url)` |
-| `client.scraper_api(url, html=False, screenshot=True)` | `client.get_screenshot(url, full_page=False)` |
+| `client.scraper_html(url)` | `client.scraper_api(url)` |
+| `client.scraper_markdown(url)` | `client.scraper_api(url, html=False, markdown=True)` |
+| `client.get_screenshot(url, full_page=False)` | `client.scraper_api(url, html=False, screenshot=True)` |
+| `client.web_search(query, region="us")` | `client.web_search(query, country="us")` |
 
-Await each replacement and keep the supported page, proxy, and retry options you need. `get_screenshot(url)` defaults to a full-page screenshot. Calls that previously combined output flags must use separate format-specific calls. `web_search` and `account` remain available. Earlier `fetch_content` calls should migrate to `scraper_html`.
+`web_search` now calls the MrScraper API with `action: "websearch"`. Its first argument is `query`, and it accepts `country` and `num_results`. The `raw`, `format`, `region`, `language`, `page`, and `render_js` options are removed.
 
-## HTML and Markdown
+## Scraper API
 
-Scrape a known URL as HTML or Markdown. Common controls support JavaScript rendering, geolocation, proxies, cookies, custom target headers, and waiting for page content.
+Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination. Common controls support JavaScript rendering, geolocation, proxies, cookies, custom target headers, and waiting for page content.
 
 ```python
 import asyncio
@@ -56,35 +50,35 @@ from mrscraper import MrScraper
 
 async def main():
     client = MrScraper()
-    html = await client.scraper_html("https://www.scrapethissite.com")
-    markdown = await client.scraper_markdown(
+
+    html = await client.scraper_api("https://www.scrapethissite.com")
+    print(html["data"])  # HTML string
+
+    combined = await client.scraper_api(
         "https://www.scrapethissite.com",
-        home_page=True,
-        super=True,
+        html=True,
+        markdown=True,
+        screenshot=True,
         proxy_country="us",
     )
-    print(html["data"])
-    print(markdown["data"])
+    print(combined["data"]["markdown"])
 
 asyncio.run(main())
 ```
 
-Both methods return a response with `status_code`, `data`, and `headers` keys. JSON responses become Python values, text responses remain strings, and binary downloads remain bytes in `data`.
-
-### Common scraping options
-
-These options apply to the URL-based scraping methods. `get_brand` instead accepts only a job ID, optional output, and its HTTP timeout.
+Requesting only HTML (the default) returns the page as a string. Requesting Markdown or a screenshot returns a dictionary with an entry for each output, such as `html`, `markdown`, and `screenshot`. At least one of `html`, `markdown`, or `screenshot` must be `True`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `url` | required | Target URL |
-| `timeout` | `120` | Page timeout from 1 to 300 seconds; screenshot default is `300`. HTTP deadline is 30 seconds longer. |
+| `html`, `markdown`, `screenshot` | `True`, `False`, `False` | Outputs to return; combine as needed. `screenshot=True` enables browser rendering. |
+| `timeout` | `120` | Page timeout from 1 to 300 seconds. HTTP deadline is 30 seconds longer. |
 | `geo_code`, `proxy_country` | `"US"`, `None` | Geolocation country code and optional proxy country |
-| `browser_rendering` | `None` | Force, disable, or automatically select rendering. Not exposed by `get_screenshot`, which always enables browser rendering. |
+| `browser_rendering` | `None` | Force, disable, or automatically select rendering |
 | `super` | `False` | Enable real device routing |
 | `use_proxy`, `proxy` | `True`, `None` | Allow a proxy or supply `username:password@host:port` |
 | `home_page` | `False` | Visit the site's root before the target page |
-| `wait_for_selector`, `wait_until` | `None`, `None` | Wait for a CSS selector or page lifecycle event; screenshot `wait_until` defaults to `"domcontentloaded"` |
+| `wait_for_selector`, `wait_until` | `None`, `None` | Wait for a CSS selector or page lifecycle event such as `"domcontentloaded"` |
 | `block_resources`, `bypass_proxy` | `False`, `False` | Block images, CSS, and fonts, or enable proxy bypass behavior |
 | `cookie_jar`, `headers` | `None`, `None` | Cookie configuration string and target request headers (dictionary or JSON string) |
 | `max_retries`, `token_cap` | `3`, `None` | Retry count and optional token cap; nonnegative values |
@@ -93,74 +87,9 @@ These options apply to the URL-based scraping methods. `get_brand` instead accep
 
 Options set to `None` use the service defaults. Set `use_proxy=False` to disable proxy use.
 
-## Get screenshot
-
-`get_screenshot` captures a full page with browser rendering enabled. Defaults are `full_page=True`, `wait_until="domcontentloaded"`, `timeout=300`, and `max_retries=3`. Pass `full_page=False` to capture the viewport. Image responses are returned as bytes; the service may also return JSON data.
-
-```python
-result = await client.get_screenshot(
-    "https://www.scrapethissite.com",
-    super=True,
-    proxy_country="us",
-    token_cap=30,
-)
-# For an image response:
-if isinstance(result["data"], bytes):
-    from pathlib import Path
-    Path("screenshot.png").write_bytes(result["data"])
-```
-
-## Structured extraction
-
-Use `scraper_json` for one page or `scraper_multiple_page` for listing entries across pages. The agent is selected by the method and is absent from its parameters.
-
-```python
-page = await client.scraper_json(
-    "https://mrscraper.com/pricing",
-    prompt="Extract every plan's name, price, and features.",
-)
-entries = await client.scraper_multiple_page(
-    "https://books.toscrape.com",
-    max_pages=3,
-)
-```
-
-`scraper_json` defaults to the prompt `"Extract all data as complete as possible."`. `scraper_multiple_page` defaults to `"Extract all entry data as complete as possible."` and `max_pages=3`. Pass your own `prompt` to describe the data to extract.
-
-## Sitemap discovery
-
-`scraper_sitemap` discovers site URLs with defaults `max_depth=2`, `max_pages=3`, and `limit=1000`. Use optional `include_patterns` and `exclude_patterns` strings to filter URLs. Pattern strings, including regex backslashes, are preserved unchanged.
-
-```python
-result = await client.scraper_sitemap(
-    "https://docs.mrscraper.com",
-    max_depth=2,
-    max_pages=3,
-    limit=1000,
-    include_patterns=r"/docs/.*|/reference/.*",
-    exclude_patterns=r"\.(png|jpg)$",
-)
-```
-
-## Brand scraping
-
-`scrape_brand` starts a brand scraping job for the given `url`. `bundle` accepts `"clean"` (default), `"full"`, or `"none"`. Use the job ID from the response with `get_brand` to read the job later or download an output.
-
-```python
-job = await client.scrape_brand("https://www.brooksrunning.com", bundle="clean")
-print(job["data"])  # Read the returned job ID.
-
-brand = await client.get_brand("YOUR_JOB_ID")
-bundle = await client.get_brand("YOUR_JOB_ID", output="bundle")
-from pathlib import Path
-Path("brand.zip").write_bytes(bundle["data"])
-```
-
-`get_brand(job_id)` reads a brand job and has a 600-second timeout by default. Omit `output` for job data or select `"html"`, `"bundle"`, `"screenshot"`, or `"screenshot_full"`. JSON becomes Python values, HTML becomes text, and ZIP or image downloads remain bytes in `data`.
-
 ## Web Search
 
-Search the web to retrieve real-time search results, including relevant website URLs, titles, descriptions, and related questions based on a given query. Results can be requested as structured JSON or HTML, with options for region, language, results page, and JavaScript rendering.
+Web Search searches the web and returns real-time results, including relevant website URLs, titles, descriptions, and related questions for a given query.
 
 ```python
 import asyncio
@@ -169,28 +98,37 @@ from mrscraper import MrScraper
 async def main():
     client = MrScraper()
     result = await client.web_search(
-        "python web scraping",
-        raw=False,
-        region="us",
-        language="en",
-        page=1,
-        format="json",
+        "e-menessaptieka.lv linkedin",
+        country="us",
+        num_results=10,
     )
-    print(result["data"])
+    for item in result["data"]["data"]:
+        print(item["rank"], item["title"], item["url"])
 
 asyncio.run(main())
 ```
 
-`web_search` accepts a search query as its first argument. The return value has `status_code`, `data`, and `headers` keys. `raw=True` is the default and requests HTML; set `raw=False` to use `format`.
+The SDK sends this request:
+
+```bash
+curl --location 'https://api.mrscraper.com' \
+--header 'x-api-token: {MRSCRAPER_API_TOKEN}' \
+--header 'Content-Type: application/json' \
+--data '{
+    "action": "websearch",
+    "query": "e-menessaptieka.lv linkedin",
+    "country": "us",
+    "numResults": 10
+}'
+```
+
+`result["data"]` contains `success`, `message`, and `data`. Each item in `data` has `rank`, `title`, `url`, `description`, and `source`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `url` | required | The search query |
-| `raw` | `True` | Request HTML when true, regardless of `format` |
-| `format` | `"json"` | `"json"` or `"html"` when `raw=False` |
-| `region`, `language` | `None`, `None` | Country and language |
-| `page` | `None` | Results page number, starting at `1` |
-| `render_js` | `False` | Render JavaScript features |
+| `query` | required | The search query |
+| `country` | `None` | Country code for localized results, such as `"us"`; omitted to use the service default |
+| `num_results` | `10` | Number of results, an integer from 10 to 100 |
 | `timeout` | `600.0` | Request timeout in seconds |
 
 ## Account status
@@ -218,52 +156,36 @@ The timeout defaults to 30 seconds and must be positive. The response has `statu
 Remaining tokens are clamped to zero when usage exceeds the limit. API keys,
 billing identifiers, and sensitive response headers are excluded.
 
-## Try structured extraction manually
+## Try it manually
 
-Set `MRSCRAPER_API_TOKEN` to your token from [the app](https://app.mrscraper.com), then run this example against the CIREBA property listings page. It makes one live scraping request and prints the API's data:
+Set `MRSCRAPER_API_TOKEN` to your token from [the app](https://app.mrscraper.com), then run the smoke test from this checkout. It calls `account`, `scraper_api`, and `web_search` against the live API and saves each response under `manual_results/`:
 
 ```bash
 export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
-python - <<'PY'
-import asyncio
-import json
-
-from mrscraper import MrScraper
-
-
-async def main():
-    result = await MrScraper().scraper_json(
-        "http://cireba.com/cayman-islands-real-estate-listings/",
-        prompt="Extract every property with its title, price, location, and URL.",
-    )
-    print(json.dumps(result["data"], indent=2, ensure_ascii=False))
-
-
-asyncio.run(main())
-PY
+python file.py
+python file.py scraper-api --url https://books.toscrape.com --markdown --screenshot
+python file.py web-search --query "e-menessaptieka.lv linkedin" --country us --num-results 10
 ```
-
-Use `scraper_multiple_page` with `max_pages=3` to extract listings across pages.
 
 ## Publishing a release
 
-Version 0.7.1 updates documentation and tool descriptions. It is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. From the repository root, validate and build the release:
+Version 0.8.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. From the repository root, validate and build the release:
 
 ```bash
 python -m pip install build twine pytest pytest-asyncio respx
 python -m pip install -e .
 python -m pytest -m "not integration" -q
-python -m build --outdir dist/manual-0.7.1
-python -m twine check dist/manual-0.7.1/mrscraper_sdk-0.7.1-py3-none-any.whl dist/manual-0.7.1/mrscraper_sdk-0.7.1.tar.gz
+python -m build --outdir dist/manual-0.8.0
+python -m twine check dist/manual-0.8.0/mrscraper_sdk-0.8.0-py3-none-any.whl dist/manual-0.8.0/mrscraper_sdk-0.8.0.tar.gz
 ```
 
 Upload those two artifacts when ready to publish:
 
 ```bash
-python -m twine upload --username __token__ dist/manual-0.7.1/mrscraper_sdk-0.7.1-py3-none-any.whl dist/manual-0.7.1/mrscraper_sdk-0.7.1.tar.gz
+python -m twine upload --username __token__ dist/manual-0.8.0/mrscraper_sdk-0.8.0-py3-none-any.whl dist/manual-0.8.0/mrscraper_sdk-0.8.0.tar.gz
 ```
 
-Twine prompts for your PyPI API token as the password. The upload command selects only version 0.7.1's wheel and source distribution. Choose a new version and update both version fields and artifact names for the next release. Documentation updates can use a patch version; new features generally use a minor version.
+Twine prompts for your PyPI API token as the password. The upload command selects only version 0.8.0's wheel and source distribution. Choose a new version and update both version fields and artifact names for the next release. Documentation updates can use a patch version; new features generally use a minor version.
 
 ## Errors
 

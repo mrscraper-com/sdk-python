@@ -6,19 +6,19 @@ import json
 import math
 import os
 from typing import Any, Literal
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import urlencode
 
 import httpx
 
 from .exceptions import APIError, AuthenticationError, NetworkError
 
 _FETCH_BASE_URL = "https://api.mrscraper.com"
-_SYNC_BASE_URL = "https://sync.scraper.mrscraper.com"
 _ACCOUNT_URL = "https://api.app.mrscraper.com/api/v1/subscription-accounts"
 
 _DEFAULT_TIMEOUT = 120
+_MIN_SEARCH_RESULTS = 10
+_MAX_SEARCH_RESULTS = 100
 
-SerpFormat = Literal["json", "html"]
 BrandBundle = Literal["clean", "full", "none"]
 BrandOutput = Literal["html", "bundle", "screenshot", "screenshot_full"]
 
@@ -43,7 +43,7 @@ class MrScraper:
 
         async def main():
             client = MrScraper(token="YOUR_TOKEN")
-            result = await client.scraper_html("https://example.com")
+            result = await client.scraper_api("https://example.com")
             print(result["data"])
 
         asyncio.run(main())
@@ -83,37 +83,6 @@ class MrScraper:
     def _compact(values: dict[str, Any]) -> dict[str, Any]:
         """Remove only unset values while preserving ``False``, ``0``, and empty strings."""
         return {key: value for key, value in values.items() if value is not None}
-
-    @staticmethod
-    def _normalize_serp_input(value: str) -> tuple[str, str | None, str | None, int | None]:
-        """Normalize search input into query, country, language, and page values."""
-        value = value.strip()
-        if not value:
-            raise ValueError("A search query is required")
-
-        parsed = urlparse(value)
-        if parsed.scheme.lower() in {"http", "https"}:
-            params = parse_qs(parsed.query)
-            query_values = params.get("q")
-            query = query_values[0].strip() if query_values else ""
-            if not query:
-                raise ValueError("Search URL must contain a q parameter")
-            start_values = params.get("start")
-            try:
-                start = int(start_values[0]) if start_values else 0
-            except ValueError:
-                start = 0
-            page = start // 10 + 1 if start > 0 else None
-            region_values = params.get("gl")
-            language_values = params.get("hl")
-            return (
-                query,
-                region_values[0] if region_values else None,
-                language_values[0] if language_values else None,
-                page,
-            )
-
-        return value, None, None, None
 
     async def _request(
         self,
@@ -252,7 +221,7 @@ class MrScraper:
         }
         return result
 
-    async def _scraper_api(
+    async def _scrape(
         self,
         url: str,
         *,
@@ -288,7 +257,7 @@ class MrScraper:
         action: Literal["brand-scraping"] | None = None,
         bundle: BrandBundle | None = None,
     ) -> dict[str, Any]:
-        """Build requests for the format-specific public scraping methods.
+        """Build and send scraping requests for ``scraper_api`` and private helpers.
 
         Only selected output flags are sent. Screenshot GETs and brand requests
         carry retry controls in the query; other POSTs carry them in JSON.
@@ -375,7 +344,120 @@ class MrScraper:
             timeout=float(timeout + 30),
         )
 
-    async def scraper_html(
+    async def scraper_api(
+        self,
+        url: str,
+        *,
+        html: bool = True,
+        markdown: bool = False,
+        screenshot: bool = False,
+        timeout: int = _DEFAULT_TIMEOUT,
+        geo_code: str = "US",
+        proxy_country: str | None = None,
+        block_resources: bool | None = False,
+        browser_rendering: bool | None = None,
+        super: bool = False,
+        use_proxy: bool = True,
+        proxy: str | None = None,
+        wait_for_selector: str | None = None,
+        wait_until: str | None = None,
+        home_page: bool = False,
+        bypass_proxy: bool = False,
+        cookie_jar: str | None = None,
+        headers: dict[str, str] | str | None = None,
+        max_retries: int = 3,
+        token_cap: int | None = None,
+        stream: bool | None = None,
+        discard_token_secret: str = "",
+    ) -> dict[str, Any]:
+        """
+        Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination.
+
+        Sends a ``GET`` request. The target URL, page options, and retry
+        controls are all sent as query parameters.
+
+        Args:
+            url: Target URL to scrape (e.g. ``"https://example.com/page"``).
+            html: Return the page HTML (default ``True``).
+            markdown: Return the page as Markdown (default ``False``).
+            screenshot: Capture a screenshot (default ``False``). Also enables
+                        ``browserRendering`` automatically. At least one of
+                        ``html``, ``markdown``, or ``screenshot`` must be ``True``.
+            timeout: Page timeout from 1 to 300 seconds (default 120). The HTTP
+                     deadline is 30 seconds longer.
+            geo_code: ISO country code for proxy-based geolocation (default ``"US"``).
+            proxy_country: Optional proxy country, sent as ``proxyCountry``.
+            block_resources: Block images, CSS, and fonts to speed up the request.
+            browser_rendering: ``True`` forces browser rendering, ``False`` disables
+                               it, and ``None`` lets the service decide.
+            super: Use real-device routing (default ``False``).
+            use_proxy: Whether the service may use a proxy (default ``True``).
+            proxy: Custom proxy in ``username:password@host:port`` form.
+            wait_for_selector: CSS selector to wait for before returning content.
+            wait_until: Page lifecycle event to wait for, e.g. ``"domcontentloaded"``.
+            home_page: Visit the site's root page before the target URL
+                       (sent as ``warmStart=true``).
+            bypass_proxy: Enable the service's proxy-bypass behavior.
+            cookie_jar: Cookie configuration string, for example
+                        ``"domain=example.com&country=us&max_used=100&max_age=50m"``.
+            headers: Target request headers as a JSON string or Python dictionary.
+            max_retries: Maximum retries (default 3).
+            token_cap: Optional retry-token budget.
+            stream: Ask the service for a streamed response; the SDK buffers it.
+            discard_token_secret: Optional value for the ``x-discard-token-secret``
+                                  request header.
+
+        Returns:
+            A dict with keys ``status_code``, ``data``, and ``headers``. ``data``
+            may contain HTML, Markdown, a screenshot, or a combination, depending
+            on the requested outputs.
+
+        Raises:
+            AuthenticationError: If the API token is invalid.
+            APIError: If the API returns a non-2xx error.
+            NetworkError: If a connection or timeout error occurs.
+
+        Example::
+
+            result = await client.scraper_api(
+                "https://www.scrapethissite.com",
+                html=True,
+                markdown=True,
+            )
+            print(result["data"])
+        """
+        for name, value in (("html", html), ("markdown", markdown), ("screenshot", screenshot)):
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be a boolean")
+        if not (html or markdown or screenshot):
+            raise ValueError("At least one of html, markdown, or screenshot must be True")
+        return await self._scrape(
+            url,
+            method="GET",
+            html=html,
+            markdown=markdown,
+            screenshot=screenshot,
+            timeout=timeout,
+            geo_code=geo_code,
+            proxy_country=proxy_country,
+            block_resources=block_resources,
+            browser_rendering=browser_rendering,
+            super=super,
+            use_proxy=use_proxy,
+            proxy=proxy,
+            wait_for_selector=wait_for_selector,
+            wait_until=wait_until,
+            home_page=home_page,
+            bypass_proxy=bypass_proxy,
+            cookie_jar=cookie_jar,
+            headers=headers,
+            max_retries=max_retries,
+            token_cap=token_cap,
+            stream=stream,
+            discard_token_secret=discard_token_secret,
+        )
+
+    async def _scraper_html(
         self,
         url: str,
         *,
@@ -404,7 +486,7 @@ class MrScraper:
         retry controls are supported by all scraping methods. The response
         has ``status_code``, ``data``, and ``headers`` keys.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=True,
             markdown=None,
@@ -428,7 +510,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def scraper_markdown(
+    async def _scraper_markdown(
         self,
         url: str,
         *,
@@ -455,7 +537,7 @@ class MrScraper:
 
         Returns the usual ``status_code``, ``data``, and ``headers`` wrapper.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=None,
             markdown=True,
@@ -479,7 +561,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def get_screenshot(
+    async def _get_screenshot(
         self,
         url: str,
         *,
@@ -511,7 +593,7 @@ class MrScraper:
         """
         if not isinstance(full_page, bool):
             raise ValueError("full_page must be a boolean")
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             method="GET",
             html=None,
@@ -537,7 +619,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def scraper_json(
+    async def _scraper_json(
         self,
         url: str,
         prompt: str = "Extract all data as complete as possible.",
@@ -566,7 +648,7 @@ class MrScraper:
         ``prompt`` is sent in the JSON body. Markdown and screenshot flags
         are omitted. JSON responses are parsed into Python values in ``data``.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=True,
             markdown=None,
@@ -592,7 +674,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def scraper_multiple_page(
+    async def _scraper_multiple_page(
         self,
         url: str,
         prompt: str = "Extract all entry data as complete as possible.",
@@ -622,7 +704,7 @@ class MrScraper:
         ``prompt`` and ``maxPages`` are JSON body fields. Output flags are
         omitted. ``max_pages`` must be a positive integer.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=None,
             markdown=None,
@@ -649,7 +731,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def scraper_sitemap(
+    async def _scraper_sitemap(
         self,
         url: str,
         *,
@@ -685,7 +767,7 @@ class MrScraper:
         Pattern strings are preserved as supplied; unset patterns are omitted.
         No HTML, Markdown, or screenshot flags are sent.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=None,
             markdown=None,
@@ -715,7 +797,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def scrape_brand(
+    async def _scrape_brand(
         self,
         url: str,
         *,
@@ -743,9 +825,9 @@ class MrScraper:
 
         The query contains ``action=brand-scraping``, ``bundle``, and ``url``;
         the JSON body contains ``url``. Use the returned job ID with
-        :meth:`get_brand` to read the job or download an output.
+        :meth:`_get_brand` to read the job or download an output.
         """
-        return await self._scraper_api(
+        return await self._scrape(
             url,
             html=None,
             markdown=None,
@@ -771,7 +853,7 @@ class MrScraper:
             discard_token_secret=discard_token_secret,
         )
 
-    async def get_brand(
+    async def _get_brand(
         self,
         job_id: str,
         *,
@@ -797,32 +879,30 @@ class MrScraper:
 
     async def web_search(
         self,
-        url: str,
+        query: str,
         *,
-        raw: bool = True,
-        region: str | None = None,
-        language: str | None = None,
-        page: int | None = None,
-        format: SerpFormat = "json",
-        render_js: bool = False,
+        country: str | None = None,
+        num_results: int = _MIN_SEARCH_RESULTS,
         timeout: float = 600.0,
     ) -> dict[str, Any]:
         """
-        Search the web to retrieve real-time search results, including relevant website URLs, titles, descriptions, and related questions based on a given query.
+        Search the web to retrieve real-time results, including relevant website
+        URLs, titles, descriptions, and related questions based on a given query.
+
+        Sends ``{"action": "websearch", "query", "country", "numResults"}`` as a
+        JSON ``POST`` to the MrScraper API.
 
         Args:
-            url: The search query.
-            raw: Deprecated compatibility alias for ``format="html"``. It takes
-                 precedence over ``format`` (default ``True`` for compatibility).
-            region: Optional country code for search results.
-            language: Optional language code for search results.
-            page: Optional results page number, starting at 1.
-            format: Response representation, ``"json"`` or ``"html"``.
-            render_js: Render JavaScript-dependent search features.
+            query: The search query (e.g. ``"python web scraping"``).
+            country: Optional country code for localized results (e.g. ``"us"``).
+                     Omitted when ``None`` so the service default applies.
+            num_results: Number of results to return, from 10 to 100 (default 10).
             timeout: Maximum seconds to wait for the request (default 600).
 
         Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
+            A dict with keys ``status_code``, ``data``, and ``headers``. ``data``
+            holds the API response; its ``data`` list contains results with
+            ``rank``, ``title``, ``url``, ``description``, and ``source``.
 
         Raises:
             AuthenticationError: If the API token is invalid.
@@ -832,32 +912,35 @@ class MrScraper:
         Example::
 
             result = await client.web_search(
-                "python web scraping",
-                raw=True,
+                "e-menessaptieka.lv linkedin",
+                country="us",
+                num_results=10,
             )
-            print(result["data"])
+            for item in result["data"]["data"]:
+                print(item["rank"], item["title"], item["url"])
         """
         self._validate_token()
-        if format not in ("json", "html"):
-            raise ValueError("format must be 'json' or 'html'")
-        if page is not None and page < 1:
-            raise ValueError("page must be a positive integer")
-        query, url_region, url_language, url_page = self._normalize_serp_input(url)
-        endpoint = f"{_SYNC_BASE_URL}/api/google/serp/v2/sync"
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("A search query is required")
+        if country is not None and (not isinstance(country, str) or not country.strip()):
+            raise ValueError("country must be a non-empty string")
+        if (
+            isinstance(num_results, bool)
+            or not isinstance(num_results, int)
+            or not _MIN_SEARCH_RESULTS <= num_results <= _MAX_SEARCH_RESULTS
+        ):
+            raise ValueError(
+                f"num_results must be an integer from {_MIN_SEARCH_RESULTS} "
+                f"to {_MAX_SEARCH_RESULTS}"
+            )
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be greater than 0 seconds")
         payload = self._compact(
             {
-                "query": query,
-                "region": region or url_region,
-                "language": language or url_language,
-                "page": page or url_page,
-                "format": "html" if raw else format,
-                "renderJs": bool(render_js),
+                "action": "websearch",
+                "query": query.strip(),
+                "country": country.strip() if country is not None else None,
+                "numResults": num_results,
             }
         )
-        return await self._request(
-            "POST",
-            endpoint,
-            payload=payload,
-            headers=self._bearer_auth_headers(),
-            timeout=timeout,
-        )
+        return await self._request("POST", _FETCH_BASE_URL, payload=payload, timeout=timeout)

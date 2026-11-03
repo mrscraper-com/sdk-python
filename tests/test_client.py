@@ -1,4 +1,4 @@
-"""Unit tests for fetch HTML and Google SERP request construction."""
+"""Unit tests for scraper_api and web_search request construction."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ async def test_scraper_api_supports_cli_controls(recorded_client):
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client._scraper_api(
+    await client._scrape(
         "https://example.com/page",
         timeout=45,
         geo_code="ID",
@@ -88,8 +88,8 @@ async def test_scraper_api_screenshot_forces_browser_rendering(recorded_client):
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client._scraper_api("https://example.com", screenshot=True, browser_rendering=False)
-    await client._scraper_api("https://example.com")
+    await client._scrape("https://example.com", screenshot=True, browser_rendering=False)
+    await client._scrape("https://example.com")
 
     assert request_json(requests[0]) == {"url": "https://example.com", "maxRetries": 3}
     assert requests[0].url.params["screenshot"] == "true"
@@ -106,7 +106,7 @@ async def test_scraper_api_requests_html_markdown_and_screenshot_together(record
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client._scraper_api("https://example.com", html=True, markdown=True, screenshot=True)
+    await client._scrape("https://example.com", html=True, markdown=True, screenshot=True)
 
     params = requests[0].url.params
     assert params["html"] == "true"
@@ -120,8 +120,8 @@ async def test_scraper_api_super_query_parameter(recorded_client):
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client._scraper_api("https://example.com", super=True)
-    await client._scraper_api("https://example.com")
+    await client._scrape("https://example.com", super=True)
+    await client._scrape("https://example.com")
 
     assert "super" not in request_json(requests[0])
     assert requests[0].url.params["super"] == "true"
@@ -137,46 +137,133 @@ async def test_scraper_api_error_does_not_expose_query_token():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
         client = MrScraper("secret-token", http_client=http_client)
         with pytest.raises(APIError) as error:
-            await client._scraper_api("https://example.com", screenshot=True)
+            await client._scrape("https://example.com", screenshot=True)
 
     assert error.value.status_code == 422
     assert "secret-token" not in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_web_search_uses_v2_and_normalizes_google_url(recorded_client):
+async def test_public_scraper_api_uses_get_with_url_and_retries_in_query(recorded_client):
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client.web_search(
-        "https://www.google.com/search?q=running+shoes&gl=us&hl=en&start=20",
-        raw=False,
-        render_js=True,
+    await client.scraper_api(
+        "https://example.com/page?a=1&b=2",
+        markdown=True,
+        screenshot=True,
+        wait_until="networkidle",
+        token_cap=30,
     )
 
     request = requests[0]
-    assert request.url.path == "/api/google/serp/v2/sync"
+    params = request.url.params
+    assert request.method == "GET"
+    assert request.content == b""
+    assert params["url"] == "https://example.com/page?a=1&b=2"
+    assert params["html"] == "true"
+    assert params["markdown"] == "true"
+    assert params["screenshot"] == "true"
+    assert params["browserRendering"] == "true"
+    assert params["waitUntil"] == "networkidle"
+    assert params["maxRetries"] == "3"
+    assert params["tokenCap"] == "30"
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_public_scraper_api_defaults_to_html_only(recorded_client):
+    http_client, requests = recorded_client
+    client = MrScraper("test-token", http_client=http_client)
+
+    await client.scraper_api("https://example.com")
+
+    params = requests[0].url.params
+    assert params["html"] == "true"
+    assert params["markdown"] == "false"
+    assert "screenshot" not in params
+    assert "browserRendering" not in params
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"html": False},
+        {"html": False, "markdown": False, "screenshot": False},
+        {"html": "yes"},
+        {"screenshot": "full"},
+    ],
+)
+async def test_public_scraper_api_rejects_invalid_outputs(recorded_client, kwargs):
+    http_client, requests = recorded_client
+    client = MrScraper("test-token", http_client=http_client)
+
+    with pytest.raises(ValueError):
+        await client.scraper_api("https://example.com", **kwargs)
+
+    assert requests == []
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_web_search_posts_websearch_action(recorded_client):
+    http_client, requests = recorded_client
+    client = MrScraper("test-token", http_client=http_client)
+
+    await client.web_search(" e-menessaptieka.lv linkedin ", country="us", num_results=25)
+
+    request = requests[0]
+    assert request.method == "POST"
+    assert request.url.host == "api.mrscraper.com"
+    assert request.url.path == "/"
+    assert not request.url.params
+    assert request.headers["x-api-token"] == "test-token"
     assert request_json(request) == {
-        "query": "running shoes",
-        "region": "us",
-        "language": "en",
-        "page": 3,
-        "format": "json",
-        "renderJs": True,
+        "action": "websearch",
+        "query": "e-menessaptieka.lv linkedin",
+        "country": "us",
+        "numResults": 25,
     }
     await http_client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_web_search_keeps_raw_compatibility(recorded_client):
+async def test_web_search_defaults(recorded_client):
     http_client, requests = recorded_client
     client = MrScraper("test-token", http_client=http_client)
 
-    await client.web_search("iphone 17")
+    await client.web_search("python web scraping")
 
     assert request_json(requests[0]) == {
-        "query": "iphone 17",
-        "format": "html",
-        "renderJs": False,
+        "action": "websearch",
+        "query": "python web scraping",
+        "numResults": 10,
     }
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query,kwargs",
+    [
+        ("", {}),
+        ("   ", {}),
+        ("python", {"num_results": 9}),
+        ("python", {"num_results": 101}),
+        ("python", {"num_results": 15.5}),
+        ("python", {"num_results": True}),
+        ("python", {"country": ""}),
+        ("python", {"timeout": 0}),
+    ],
+)
+async def test_web_search_rejects_invalid_input_before_request(recorded_client, query, kwargs):
+    http_client, requests = recorded_client
+    client = MrScraper("test-token", http_client=http_client)
+
+    with pytest.raises(ValueError):
+        await client.web_search(query, **kwargs)
+
+    assert requests == []
     await http_client.aclose()
