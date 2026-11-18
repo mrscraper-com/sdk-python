@@ -2,198 +2,131 @@
 
 ![](./mrscraper.jpeg)
 
-An async Python client for [MrScraper](https://mrscraper.com) page scraping, Web Search, and account status. Requires Python 3.9+.
+Seven services matching the [MrScraper CLI](https://github.com/mrscraper-com/cli).
 
-## Install and authenticate
+| Service | Method | Purpose |
+| --- | --- | --- |
+| `account` | `account` | Account, subscription, quota, and rate limits |
+| `scrape-html` | `scrape_html` | Raw page HTML |
+| `scrape-markdown` | `scrape_markdown` | Clean Markdown; optional HTML |
+| `get-screenshot` | `get_screenshot` | Full-page or top-viewport base64 screenshot |
+| `scrape-brand` | `scrape_brand` | Brand data as JSON |
+| `scrape-json` | `scrape_json` | Structured extraction using a prompt |
+| `web-search` | `web_search` | Ranked web search results |
 
-Install the SDK and configure your API token:
+## Install and use
+
+Requires Python 3.9+. Obtain a token from [the app](https://app.mrscraper.com).
 
 ```bash
-python -m pip install --upgrade mrscraper-sdk
+python -m pip install -U mrscraper-sdk
 export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
 ```
 
-For local development, install this checkout with `python -m pip install -e .`.
-
-The client reads `MRSCRAPER_API_TOKEN` automatically. You can also pass `token="YOUR_TOKEN"` to `MrScraper`. Pass `http_client=` to reuse your own `httpx.AsyncClient`; otherwise the SDK creates one per request. All public methods are async and must be awaited.
-
-## Public methods
-
-| Method | Purpose |
-|--------|---------|
-| `scraper_api(url, ...)` | Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination |
-| `web_search(query, ...)` | Search the web for real-time results: website URLs, titles, and descriptions |
-| `account(...)` | Read account identity, subscription, quota, and rate limits |
-
-Every method returns a dictionary with `status_code`, `data`, and `headers` keys. JSON responses become Python values, text responses remain strings, and binary downloads remain bytes in `data`.
-
-### Migrating from 0.7.x
-
-Version 0.9.0 returns to three public methods. The format-specific methods from 0.7.x are no longer public; use `scraper_api` with output flags instead:
-
-| Previous call | Replacement |
-|---------------|-------------|
-| `client.scraper_html(url)` | `client.scraper_api(url)` |
-| `client.scraper_markdown(url)` | `client.scraper_api(url, html=False, markdown=True)` |
-| `client.get_screenshot(url, full_page=False)` | `client.scraper_api(url, html=False, screenshot=True)` |
-| `client.web_search(query, region="us")` | `client.web_search(query, country="us")` |
-
-`web_search` now calls the MrScraper API with `action: "websearch"`. Its first argument is `query`, and it accepts `country` and `num_results`. The `raw`, `format`, `region`, `language`, `page`, and `render_js` options are removed.
-
-## Scraper API
-
-Fetch a public web page as rendered HTML, Markdown, screenshot, or a combination. Common controls support JavaScript rendering, geolocation, proxies, cookies, custom target headers, and waiting for page content.
-
 ```python
 import asyncio
 from mrscraper import MrScraper
 
 async def main():
-    client = MrScraper()
-
-    html = await client.scraper_api("https://www.scrapethissite.com")
-    print(html["data"])  # HTML string
-
-    combined = await client.scraper_api(
-        "https://www.scrapethissite.com",
-        html=True,
-        markdown=True,
-        screenshot=True,
-        proxy_country="us",
-    )
-    print(combined["data"]["markdown"])
+    client = MrScraper()  # or MrScraper(token="YOUR_TOKEN")
+    print((await client.account())["data"])
+    html = await client.scrape_html("https://books.toscrape.com/")
+    markdown = await client.scrape_markdown("https://books.toscrape.com/", html=True)
+    screenshot = await client.get_screenshot("https://example.com", screenshot="top")
+    brand = await client.scrape_brand("https://mrscraper.com")
+    data = await client.scrape_json("https://books.toscrape.com/", prompt="Extract titles and prices")
+    results = await client.web_search("web scraping", country="id", num_results=20)
+    print(results["data"])
 
 asyncio.run(main())
 ```
 
-Requesting only HTML (the default) returns the page as a string. Requesting Markdown or a screenshot returns a dictionary with an entry for each output, such as `html`, `markdown`, and `screenshot`. At least one of `html`, `markdown`, or `screenshot` must be `True`.
+All methods are async. The client reads `MRSCRAPER_API_TOKEN` or `MRSCRAPER_API_KEY`. Pass `http_client=` to reuse an `httpx.AsyncClient`; otherwise the SDK closes its own client after each call.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `url` | required | Target URL |
-| `html`, `markdown`, `screenshot` | `True`, `False`, `False` | Outputs to return; combine as needed. `screenshot=True` enables browser rendering. |
-| `timeout` | `120` | Page timeout from 1 to 300 seconds. HTTP deadline is 30 seconds longer. |
-| `geo_code`, `proxy_country` | `"US"`, `None` | Geolocation country code and optional proxy country |
-| `browser_rendering` | `None` | Force, disable, or automatically select rendering |
-| `super` | `False` | Enable real device routing |
-| `use_proxy`, `proxy` | `True`, `None` | Allow a proxy or supply `username:password@host:port` |
-| `home_page` | `False` | Visit the site's root before the target page |
-| `wait_for_selector`, `wait_until` | `None`, `None` | Wait for a CSS selector or page lifecycle event such as `"domcontentloaded"` |
-| `block_resources`, `bypass_proxy` | `False`, `False` | Block images, CSS, and fonts, or enable proxy bypass behavior |
-| `cookie_jar`, `headers` | `None`, `None` | Cookie configuration string and target request headers (dictionary or JSON string) |
-| `max_retries`, `token_cap` | `3`, `None` | Retry count and optional token cap; nonnegative values |
-| `stream` | `None` | Request a streamed response, buffered by the SDK |
-| `discard_token_secret` | `""` | Value for the `x-discard-token-secret` header |
+Every response has `status_code`, `data`, and `headers`. JSON becomes Python values; HTML and other text remain strings; binary data remains bytes. Combined outputs retain the upstream JSON structure. Account returns a safe summary containing `subscription_status`, `enterprise`, `token_usage`, `token_limit`, `token_remaining`, `usage_percent`, `rate_limit`, `rate_ttl`, `auto_renew`, `ends_at`, and `user` (`name`, `email`, `verified`). Account accepts a positive `timeout` (default 30 seconds); API keys and billing identifiers are excluded.
 
-Options set to `None` use the service defaults. Set `use_proxy=False` to disable proxy use.
+`AuthenticationError` indicates missing/invalid credentials; `APIError` contains the HTTP `status_code`; `NetworkError` indicates transport failures. All inherit from `MrScraperError`.
 
-## Web Search
+See the [REST API reference](docs/api-reference.md) for wire examples and parameter mappings.
 
-Web Search searches the web for real-time results: website URLs, titles, and descriptions.
+## Options
 
-```python
-import asyncio
-from mrscraper import MrScraper
+| Python / LangChain | Node / MCP | Default | Meaning |
+| --- | --- | --- | --- |
+| `timeout` | `timeout` | `300` | Page deadline in seconds, integer 1–300 |
+| `geo_code` | `geoCode` | `"us"` | Country to load the page from |
+| `proxy_country` | `proxyCountry` | `"us"` | Proxy server country |
+| `super` | `superMode` | `False` / `false` | Use real-device routing; sent as `super` |
+| `wait_until` | `waitUntil` | `"domcontentloaded"` | Also accepts `load`, `networkidle0`, `networkidle2` |
+| `proxy` | `proxy` | omitted | Custom proxy URL |
+| `max_retries` | `maxRetries` | omitted | Nonnegative retry limit; omission means no limit |
+| `save_result` | `saveResult` | `False` / `false` | Save the result in the dashboard |
+| `block_resources` | `blockResources` | `False` / `false` | Block images, fonts, and stylesheets |
+| `wait_for_selector` | `waitForSelector` | omitted | Wait for a CSS selector |
+| `return_cookie` | `returnCookie` | `False` / `false` | Include session cookies |
+| `browser_rendering` | `browserRendering` | `False` / `false` | Enable browser rendering |
 
-async def main():
-    client = MrScraper()
-    result = await client.web_search(
-        "e-menessaptieka.lv linkedin",
-        country="us",
-        num_results=10,
-    )
-    for item in result["data"]["data"]:
-        print(item["rank"], item["title"], item["url"])
+The first eight page controls apply to HTML, Markdown, screenshots, and JSON. The three loading controls (`block_resources`/`blockResources`, `wait_for_selector`/`waitForSelector`, `return_cookie`/`returnCookie`) apply to HTML, Markdown, and screenshots. Browser rendering can be selected for HTML, Markdown, and JSON; screenshots always enable it.
 
-asyncio.run(main())
-```
+Markdown accepts `html=False` / `html: false`; enabling HTML forces browser rendering. Screenshots accept `screenshot="full"` or `"top"`, `html=True` / `true`, and `markdown=False` / `false`. JSON accepts a `prompt` (default `"Extract all data as complete as possible."`), `html=False` / `false`, and `screenshot=False` / `false`. JSON does not expose loading or cookie controls. Brand takes only the target URL, plus authentication in the Node SDK.
 
-The SDK sends this request:
+Search takes `query`, `country="us"`, and `num_results=10` / `numResults: 10` (integer 10–100). Queries are trimmed and must contain 1–1,000 characters. Countries are two ASCII letters and are sent in lowercase. Search also accepts a positive local `timeout`, default 120 seconds. This timeout is not sent upstream as a page option.
 
-```bash
-curl --location 'https://api.mrscraper.com' \
---header 'x-api-token: {MRSCRAPER_API_TOKEN}' \
---header 'Content-Type: application/json' \
---data '{
-    "action": "websearch",
-    "query": "e-menessaptieka.lv linkedin",
-    "country": "us",
-    "numResults": 10
-}'
-```
+## HTTP contract
 
-`result["data"]` contains `success`, `message`, and `data`. Each item in `data` has `rank`, `title`, `url`, `description`, and `source`.
+The CLI repository is the source of truth for service behavior. These are seven services, using two API hosts:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `query` | required | The search query |
-| `country` | `None` | Country code for localized results, such as `"us"`; omitted to use the service default |
-| `num_results` | `10` | Number of results, an integer from 10 to 100 |
-| `timeout` | `600.0` | Request timeout in seconds |
+| Service | Request |
+| --- | --- |
+| Account | `GET https://api.app.mrscraper.com/api/v1/subscription-accounts` |
+| HTML | `GET https://api.mrscraper.com?url=…&html=true&markdown=false&screenshot=false` |
+| Markdown | `GET https://api.mrscraper.com?url=…&html=false&markdown=true&screenshot=false` |
+| Screenshot | `GET https://api.mrscraper.com?url=…&browserRendering=true&screenshot=full&html=true&markdown=false` |
+| Brand | `GET https://api.mrscraper.com?action=brand-scraping&url=…&bundle=none` |
+| JSON | `GET https://api.mrscraper.com?url=…&agent=general&prompt=…&html=false&screenshot=false` |
+| Web search | `GET https://api.mrscraper.com?action=websearch&query=…&country=us&numResults=10` |
 
-## Account status
+JSON uses GET until the encoded URL exceeds 8,000 characters. It then uses POST with `{ "url", "prompt", "agent": "general" }` in the JSON body and page controls in the query. Append `Json Schema:` and a JSON schema to the prompt to shape the extraction.
 
-Account returns an overview of the account associated with your API token, including user identity, subscription status, token usage, remaining quota, and rate limits. Use it to monitor consumption and check available tokens before running scraping or search jobs. The SDK returns a summary that excludes API tokens and billing identifiers.
+Authentication uses headers. Credentials are never placed in the query string. Page requests allow 30 seconds beyond the page timeout for HTTP transport; brand and search default to 120 seconds. Brand returns JSON synchronously with `bundle=none`.
 
-```python
-import asyncio
-from mrscraper import MrScraper
+## Migration
 
-async def main():
-    result = await MrScraper().account(timeout=30)
-    print(result["data"]["subscription_status"])
-    print(result["data"]["token_remaining"])
-    print(result["data"]["user"]["email"])
+This release replaces the combined `scraper_api` service with `scrape_html`, `scrape_markdown`, and `get_screenshot`, and adds public `scrape_brand` and `scrape_json`. For combined outputs use `scrape_markdown(..., html=True)` or `get_screenshot(..., html=True, markdown=True)`. The old `full_page` option becomes `screenshot="full"` or `"top"`. LangChain tool names follow `mrscraper_<service>`.
 
-asyncio.run(main())
-```
+Page defaults now match the CLI: 300-second timeout, US geolocation and proxy country, rendering off unless required by a chosen service, and no explicit retry limit. Search uses `query`, `country`, and a result count; old URL/locale/raw/format options are removed. Legacy scraper job, sitemap, rerun, result, and bundle-download methods are outside this seven-service API.
 
-`account(timeout=30)` checks the account associated with the client's token.
-The timeout defaults to 30 seconds and must be positive. The response has `status_code`,
-`data`, and `headers` keys. `data` contains `subscription_status`, `enterprise`,
-`token_usage`, `token_limit`, `token_remaining`, `usage_percent`, `rate_limit`,
-`rate_ttl`, `auto_renew`, `ends_at`, and `user` (`name`, `email`, `verified`).
-Remaining tokens are clamped to zero when usage exceeds the limit. API keys,
-billing identifiers, and sensitive response headers are excluded.
+## Manual testing
 
-## Try it manually
-
-Set `MRSCRAPER_API_TOKEN` to your token from [the app](https://app.mrscraper.com), then run the smoke test from this checkout. It calls `account`, `scraper_api`, and `web_search` against the live API and saves each response under `manual_results/`:
+These commands make live calls and consume quota. Each service can be tested separately.
 
 ```bash
-export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
-python file.py
-python file.py scraper-api --url https://books.toscrape.com --markdown --screenshot
-python file.py web-search --query "e-menessaptieka.lv linkedin" --country us --num-results 10
-```
-
-## Publishing a release
-
-Version 0.9.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. From the repository root, validate and build the release:
-
-```bash
-python -m pip install build twine pytest pytest-asyncio respx
 python -m pip install -e .
-python -m pytest -m "not integration" -q
-python -m build --outdir dist/manual-0.9.0
-python -m twine check dist/manual-0.9.0/mrscraper_sdk-0.9.0-py3-none-any.whl dist/manual-0.9.0/mrscraper_sdk-0.9.0.tar.gz
+export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
+python file.py                          # all seven, with a pass/fail summary
+python file.py account
+python file.py scrape-html --url https://example.com
+python file.py scrape-markdown --args '{"html":true}'
+python file.py get-screenshot --args '{"screenshot":"top"}'
+python file.py scrape-brand --url https://mrscraper.com
+python file.py scrape-json --args '{"prompt":"Extract titles and prices"}'
+python file.py web-search --query "web scraping" --args '{"country":"id","num_results":20}'
 ```
 
-Upload those two artifacts when ready to publish:
+Responses, screenshots, and the summary are saved under `manual_results/`. `test_pypi.py` is an alias for this local checkout runner.
+
+## Development
 
 ```bash
-python -m twine upload --username __token__ dist/manual-0.9.0/mrscraper_sdk-0.9.0-py3-none-any.whl dist/manual-0.9.0/mrscraper_sdk-0.9.0.tar.gz
+python -m pip install -e . pytest pytest-asyncio respx build twine
+python -m pytest -m "not integration" -q
+python -m build
+python -m twine check dist/*
+# Opt-in live suite:
+MRSCRAPER_RUN_LIVE=1 python -m pytest -m integration -q
 ```
 
-Twine prompts for your PyPI API token as the password. The upload command selects only version 0.9.0's wheel and source distribution. Choose a new version and update both version fields and artifact names for the next release. Documentation updates can use a patch version; new features generally use a minor version.
-
-## Errors
-
-`MrScraperError` is the base exception. `AuthenticationError` indicates a missing or invalid token, `APIError` carries an HTTP `status_code`, and `NetworkError` indicates a connection or timeout failure.
-
-## Compliance & Legal Risk
-
-Scraping login-protected pages can carry legal and compliance risks. Check the target site's terms and applicable law before automating access.
+Version 0.10.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. Publish this Python SDK before LangChain 0.6.0, which depends on it.
 
 ## License
 

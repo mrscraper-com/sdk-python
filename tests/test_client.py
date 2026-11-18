@@ -1,269 +1,177 @@
-"""Unit tests for scraper_api and web_search request construction."""
-
-from __future__ import annotations
+"""Contract checks derived from CLI lib/api.js; no live requests."""
 
 import json
-from typing import Any
 
 import httpx
 import pytest
 
-from mrscraper import APIError, MrScraper
+from mrscraper import APIError, AuthenticationError, MrScraper, NetworkError
+
+URL = "https://example.com/page?a=1&b=two"
+SERVICES = (
+    "account",
+    "scrape_html",
+    "scrape_markdown",
+    "get_screenshot",
+    "scrape_brand",
+    "scrape_json",
+    "web_search",
+)
 
 
-@pytest.fixture
-def recorded_client():
-    requests: list[httpx.Request] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={"ok": True})
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    yield client, requests
+def test_public_services():
+    assert {
+        name for name, fn in vars(MrScraper).items() if not name.startswith("_") and callable(fn)
+    } == set(SERVICES)
 
 
-def request_json(request: httpx.Request) -> dict[str, Any]:
-    return json.loads(request.content)
+@pytest.mark.parametrize("name", SERVICES)
+async def test_service_contract(recorded, name):
+    client, calls = recorded
+    args = () if name == "account" else ("  web scraping  " if name == "web_search" else URL,)
+    result = await getattr(client, name)(*args)
+    req = calls[0]
+    assert req.method == "GET"
+    assert not req.content
+    assert req.headers["authorization"] == "Bearer test-token"
+    assert req.headers["x-api-token"] == "test-token"
+    assert "token" not in req.url.params
+    assert result["status_code"] == 200
+    params = dict(req.url.params)
+    if name == "account":
+        assert req.url.path == "/api/v1/subscription-accounts"
+        return
+    assert req.url.host == "api.mrscraper.com"
+    if name == "scrape_brand":
+        assert params == {"action": "brand-scraping", "url": URL, "bundle": "none"}
+        assert req.extensions["timeout"]["read"] == 120
+        return
+    if name == "web_search":
+        assert params == {
+            "action": "websearch",
+            "query": "web scraping",
+            "country": "us",
+            "numResults": "10",
+        }
+        return
+    expected = {
+        "url": URL,
+        "timeout": "300",
+        "geoCode": "us",
+        "proxyCountry": "us",
+        "super": "false",
+        "waitUntil": "domcontentloaded",
+        "saveResult": "false",
+    }
+    if name != "scrape_json":
+        expected.update(
+            blockResources="false",
+            returnCookie="false",
+            markdown="true" if name == "scrape_markdown" else "false",
+        )
+    expected.update(
+        browserRendering="true" if name == "get_screenshot" else "false",
+        html="true" if name in {"scrape_html", "get_screenshot"} else "false",
+        screenshot="full" if name == "get_screenshot" else "false",
+    )
+    if name == "scrape_json":
+        expected.update(agent="general", prompt="Extract all data as complete as possible.")
+    assert params == expected
+    assert req.extensions["timeout"]["read"] == 330
 
 
-@pytest.mark.asyncio
-async def test_scraper_api_supports_cli_controls(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client._scrape(
-        "https://example.com/page",
-        timeout=45,
-        geo_code="ID",
-        browser_rendering=True,
+async def test_loading_and_false_zero_options(recorded):
+    client, calls = recorded
+    await client.scrape_html(
+        URL,
         super=True,
-        wait_for_selector=".ready",
-        home_page=True,
-        screenshot=True,
-        block_resources=True,
-        max_retries=4,
-        token_cap=100,
-        use_proxy=False,
-        proxy="user:pass@proxy.example:8000",
+        geo_code="ID",
         proxy_country="SG",
-        bypass_proxy=True,
-        cookie_jar="domain=example.com&country=sg&max_used=10&max_age=50m",
-        headers={"accept-language": "en-US"},
-        stream=True,
-        discard_token_secret="discard-secret",
+        max_retries=0,
+        save_result=True,
+        proxy="http://proxy.example",
+        wait_until="networkidle2",
+        wait_for_selector=".ready",
+        return_cookie=True,
+        block_resources=True,
+        browser_rendering=True,
+        timeout=15,
     )
-
-    request = requests[0]
-    payload = request_json(request)
-    assert request.method == "POST"
-    assert request.url.path == "/"
-    assert payload == {"url": "https://example.com/page", "maxRetries": 4, "tokenCap": 100}
-    assert request.url.params["browserRendering"] == "true"
-    assert request.url.params["super"] == "true"
-    assert request.url.params["geoCode"] == "ID"
-    assert request.url.params["waitForSelector"] == ".ready"
-    assert request.url.params["warmStart"] == "true"
-    assert "homePage" not in request.url.params
-    assert request.url.params["screenshot"] == "true"
-    assert request.url.params["blockResources"] == "true"
-    assert request.url.params["useProxy"] == "false"
-    assert request.url.params["proxy"] == "user:pass@proxy.example:8000"
-    assert request.url.params["proxyCountry"] == "SG"
-    assert request.url.params["bypassProxy"] == "true"
-    assert request.url.params["cookieJar"].startswith("domain=example.com")
-    assert json.loads(request.url.params["headers"]) == {"accept-language": "en-US"}
-    assert request.url.params["stream"] == "true"
-    assert request.url.params["token"] == "test-token"
-    assert request.url.params["timeout"] == "45"
-    assert request.headers["authorization"] == "Bearer test-token"
-    assert request.headers["x-api-token"] == "test-token"
-    assert request.headers["x-discard-token-secret"] == "discard-secret"
-    assert not http_client.is_closed
-    await http_client.aclose()
+    p = calls[0].url.params
+    for key, value in {
+        "super": "true",
+        "geoCode": "id",
+        "proxyCountry": "sg",
+        "maxRetries": "0",
+        "saveResult": "true",
+        "proxy": "http://proxy.example",
+        "waitUntil": "networkidle2",
+        "waitForSelector": ".ready",
+        "returnCookie": "true",
+        "blockResources": "true",
+        "browserRendering": "true",
+        "timeout": "15",
+    }.items():
+        assert p[key] == value
+    assert calls[0].extensions["timeout"]["read"] == 45
 
 
-@pytest.mark.asyncio
-async def test_scraper_api_screenshot_forces_browser_rendering(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client._scrape("https://example.com", screenshot=True, browser_rendering=False)
-    await client._scrape("https://example.com")
-
-    assert request_json(requests[0]) == {"url": "https://example.com", "maxRetries": 3}
-    assert requests[0].url.params["screenshot"] == "true"
-    assert requests[0].url.params["browserRendering"] == "true"
-    assert "screenshot" not in request_json(requests[1])
-    assert "screenshot" not in requests[1].url.params
-    assert "browserRendering" not in requests[1].url.params
-    assert "warmStart" not in requests[1].url.params
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_scraper_api_requests_html_markdown_and_screenshot_together(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client._scrape("https://example.com", html=True, markdown=True, screenshot=True)
-
-    params = requests[0].url.params
-    assert params["html"] == "true"
-    assert params["markdown"] == "true"
-    assert params["screenshot"] == "true"
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_scraper_api_super_query_parameter(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client._scrape("https://example.com", super=True)
-    await client._scrape("https://example.com")
-
-    assert "super" not in request_json(requests[0])
-    assert requests[0].url.params["super"] == "true"
-    assert "super" not in requests[1].url.params
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_scraper_api_error_does_not_expose_query_token():
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(422, json={"message": "invalid request"})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-        client = MrScraper("secret-token", http_client=http_client)
-        with pytest.raises(APIError) as error:
-            await client._scrape("https://example.com", screenshot=True)
-
-    assert error.value.status_code == 422
-    assert "secret-token" not in str(error.value)
-
-
-@pytest.mark.asyncio
-async def test_public_scraper_api_uses_get_with_url_and_retries_in_query(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client.scraper_api(
-        "https://example.com/page?a=1&b=2",
-        markdown=True,
-        screenshot=True,
-        wait_until="networkidle",
-        token_cap=30,
+async def test_json_short_and_long_prompts(recorded):
+    client, calls = recorded
+    await client.scrape_json(URL, "  Extract titles  ", max_retries=0)
+    await client.scrape_json(URL, "é &" * 4000, max_retries=0, save_result=True)
+    assert calls[0].url.params["prompt"] == "  Extract titles  "
+    req = calls[1]
+    assert req.method == "POST"
+    assert json.loads(req.content) == {"url": URL, "prompt": "é &" * 4000, "agent": "general"}
+    assert not {"url", "prompt", "agent", "blockResources", "returnCookie"}.intersection(
+        req.url.params
     )
-
-    request = requests[0]
-    params = request.url.params
-    assert request.method == "GET"
-    assert request.content == b""
-    assert params["url"] == "https://example.com/page?a=1&b=2"
-    assert params["html"] == "true"
-    assert params["markdown"] == "true"
-    assert params["screenshot"] == "true"
-    assert params["browserRendering"] == "true"
-    assert params["waitUntil"] == "networkidle"
-    assert params["maxRetries"] == "3"
-    assert params["tokenCap"] == "30"
-    await http_client.aclose()
+    assert req.url.params["maxRetries"] == "0"
+    assert req.url.params["saveResult"] == "true"
+    assert "token" not in str(req.url)
 
 
-@pytest.mark.asyncio
-async def test_public_scraper_api_defaults_to_html_only(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client.scraper_api("https://example.com")
-
-    params = requests[0].url.params
-    assert params["html"] == "true"
-    assert params["markdown"] == "false"
-    assert "screenshot" not in params
-    assert "browserRendering" not in params
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "kwargs",
+    "status,error", [(401, AuthenticationError), (429, APIError), (500, APIError)]
+)
+async def test_http_failures(status, error):
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(status, json={"error": "failed"}))
+    ) as http:
+        with pytest.raises(error):
+            await MrScraper("test", http_client=http).scrape_html(URL)
+
+
+async def test_network_failure():
+    def fail(req):
+        raise httpx.ReadTimeout("timeout", request=req)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(fail)) as http:
+        with pytest.raises(NetworkError):
+            await MrScraper("test", http_client=http).scrape_html(URL)
+
+
+@pytest.mark.parametrize(
+    "content_type,data",
     [
-        {"html": False},
-        {"html": False, "markdown": False, "screenshot": False},
-        {"html": "yes"},
-        {"screenshot": "full"},
+        ("text/html", b"<html>test</html>"),
+        ("text/markdown", b"# test"),
+        ("image/png", b"\x89PNG\x00\xff"),
+        ("application/json", b'{"data":{"ok":true}}'),
     ],
 )
-async def test_public_scraper_api_rejects_invalid_outputs(recorded_client, kwargs):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    with pytest.raises(ValueError):
-        await client.scraper_api("https://example.com", **kwargs)
-
-    assert requests == []
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_web_search_posts_websearch_action(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client.web_search(" e-menessaptieka.lv linkedin ", country="us", num_results=25)
-
-    request = requests[0]
-    assert request.method == "POST"
-    assert request.url.host == "api.mrscraper.com"
-    assert request.url.path == "/"
-    assert not request.url.params
-    assert request.headers["x-api-token"] == "test-token"
-    assert request_json(request) == {
-        "action": "websearch",
-        "query": "e-menessaptieka.lv linkedin",
-        "country": "us",
-        "numResults": 25,
-    }
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_web_search_defaults(recorded_client):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    await client.web_search("python web scraping")
-
-    assert request_json(requests[0]) == {
-        "action": "websearch",
-        "query": "python web scraping",
-        "numResults": 10,
-    }
-    await http_client.aclose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "query,kwargs",
-    [
-        ("", {}),
-        ("   ", {}),
-        ("python", {"num_results": 9}),
-        ("python", {"num_results": 101}),
-        ("python", {"num_results": 15.5}),
-        ("python", {"num_results": True}),
-        ("python", {"country": ""}),
-        ("python", {"timeout": 0}),
-    ],
-)
-async def test_web_search_rejects_invalid_input_before_request(recorded_client, query, kwargs):
-    http_client, requests = recorded_client
-    client = MrScraper("test-token", http_client=http_client)
-
-    with pytest.raises(ValueError):
-        await client.web_search(query, **kwargs)
-
-    assert requests == []
-    await http_client.aclose()
+async def test_response_types(content_type, data):
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, content=data, headers={"content-type": content_type})
+        )
+    ) as http:
+        result = await MrScraper("test", http_client=http).get_screenshot(URL)
+    assert result["data"] == (
+        json.loads(data)
+        if content_type == "application/json"
+        else data
+        if content_type == "image/png"
+        else data.decode()
+    )
