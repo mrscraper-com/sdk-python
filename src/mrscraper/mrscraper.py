@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import os
 from typing import Any, Literal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
 from .exceptions import APIError, AuthenticationError, NetworkError
 
 _FETCH_BASE_URL = "https://api.mrscraper.com"
-_API_BASE_URL = "https://api.app.mrscraper.com/api/v1"
-_SYNC_BASE_URL = "https://sync.scraper.mrscraper.com"
+_ACCOUNT_URL = "https://api.app.mrscraper.com/api/v1/subscription-accounts"
 
-_DEFAULT_TIMEOUT = 120
+WaitUntil = Literal["domcontentloaded", "load", "networkidle0", "networkidle2"]
+DEFAULT_JSON_PROMPT = "Extract all data as complete as possible."
 
 
 class MrScraper:
@@ -33,12 +33,12 @@ class MrScraper:
     Example::
 
         import asyncio
-        from mrscraper import AsyncMrScraper
+        from mrscraper import MrScraper
 
         async def main():
-            client = AsyncMrScraper(token="MRSCRAPER_API_TOKEN")
-            html = await client.fetch_html("https://example.com")
-            print(html["data"])
+            client = MrScraper(token="YOUR_TOKEN")
+            result = await client.scrape_html("https://example.com")
+            print(result["data"])
 
         asyncio.run(main())
     """
@@ -49,7 +49,11 @@ class MrScraper:
         *,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._token = token or os.environ.get("MRSCRAPER_API_TOKEN", "")
+        self._token = (
+            token
+            or os.environ.get("MRSCRAPER_API_TOKEN")
+            or os.environ.get("MRSCRAPER_API_KEY", "")
+        )
         self._http_client = http_client
 
     def _validate_token(self) -> None:
@@ -60,18 +64,12 @@ class MrScraper:
                 "Get your token at https://app.mrscraper.com"
             )
 
-    def _auth_headers(self) -> dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "accept": "application/json",
-            "x-api-token": self._token,
-        }
-
     def _bearer_auth_headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
             "accept": "application/json",
             "Authorization": f"Bearer {self._token}",
+            "x-api-token": self._token,
         }
 
     def _client(self) -> httpx.AsyncClient:
@@ -79,37 +77,28 @@ class MrScraper:
             return self._http_client
         return httpx.AsyncClient()
 
-    async def _get(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str] | None = None,
-        timeout: float = float(_DEFAULT_TIMEOUT + 30),
-    ) -> dict[str, Any]:
-        async with self._client() as client:
-            try:
-                response = await client.get(url, headers=headers, timeout=timeout)
-                response.raise_for_status()
-                return self._parse(response)
-            except httpx.HTTPStatusError as exc:
-                self._raise_for_status(exc)
-                raise  # unreachable; satisfies type checker
-            except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
+    @staticmethod
+    def _compact(values: dict[str, Any]) -> dict[str, Any]:
+        """Remove only unset values while preserving ``False``, ``0``, and empty strings."""
+        return {key: value for key, value in values.items() if value is not None}
 
-    async def _post(
+    async def _request(
         self,
+        method: str,
         url: str,
         *,
-        payload: dict[str, Any],
+        payload: dict[str, Any] | None = None,
         timeout: float = 600.0,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        async with self._client() as client:
+        client = self._client()
+        owns_client = self._http_client is None
+        try:
             try:
-                response = await client.post(
+                response = await client.request(
+                    method,
                     url,
-                    headers=headers or self._auth_headers(),
+                    headers=headers or self._bearer_auth_headers(),
                     json=payload,
                     timeout=timeout,
                 )
@@ -119,7 +108,10 @@ class MrScraper:
                 self._raise_for_status(exc)
                 raise  # unreachable; satisfies type checker
             except httpx.HTTPError as exc:
-                raise NetworkError(str(exc)) from exc
+                raise NetworkError(self._safe_http_error(exc)) from exc
+        finally:
+            if owns_client:
+                await client.aclose()
 
     @staticmethod
     def _parse(response: httpx.Response) -> dict[str, Any]:
@@ -129,13 +121,36 @@ class MrScraper:
                 "Please go to https://app.mrscraper.com to get your token."
             )
 
-        content_type = response.headers.get("content-type", "").lower()
-        data: Any = response.json() if "application/json" in content_type else response.text
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        data: Any
+        if content_type == "application/json" or content_type.endswith("+json"):
+            data = response.json()
+        elif (
+            not content_type
+            or content_type.startswith("text/")
+            or content_type
+            in {"application/xml", "application/xhtml+xml", "application/javascript"}
+        ):
+            data = response.text
+        else:
+            data = response.content
         return {
             "status_code": response.status_code,
             "data": data,
             "headers": dict(response.headers),
         }
+
+    @staticmethod
+    def _safe_http_error(exc: httpx.HTTPError) -> str:
+        message = str(exc)
+        try:
+            request = exc.request
+        except RuntimeError:
+            return message
+        if "token" in request.url.params:
+            safe_url = request.url.copy_set_param("token", "[REDACTED]")
+            return message.replace(str(request.url), str(safe_url))
+        return message
 
     @staticmethod
     def _raise_for_status(exc: httpx.HTTPStatusError) -> None:
@@ -145,479 +160,370 @@ class MrScraper:
                 "Unauthorized or invalid token. "
                 "Please go to https://app.mrscraper.com to get your token."
             ) from exc
-        raise APIError(str(exc), status_code=status_code) from exc
+        raise APIError(MrScraper._safe_http_error(exc), status_code=status_code) from exc
 
-    async def fetch_html(
-        self,
-        url: str,
-        *,
-        timeout: int = _DEFAULT_TIMEOUT,
-        geo_code: str = "US",
-        block_resources: bool = False,
-    ) -> dict[str, Any]:
-        """
-        Fetch the rendered HTML of a page via the MrScraper stealth browser.
-
-        The service handles JavaScript rendering, bot detection evasion, and
-        optional geolocation proxying for you.
-
-        Args:
-            url: Target URL to scrape (e.g. ``"https://example.com/page"``).
-            timeout: Maximum seconds to wait for the page to load (default 120).
-            geo_code: ISO country code for proxy-based geolocation (default ``"US"``).
-                      Examples: ``"US"``, ``"GB"``, ``"ID"``, ``"SG"``.
-            block_resources: When ``True``, images, CSS, and fonts are blocked to
-                             speed up the request (default ``False``).
+    async def status(self) -> dict[str, Any]:
+        """Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.
 
         Returns:
-            A dict with keys ``status_code``, ``data`` (raw HTML or JSON), and
-            ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.fetch_html(
-                "https://stockx.com/air-jordan-1-retro-low-og-chicago-2025",
-                geo_code="US",
-                timeout=120,
-            )
-            print(result["data"])  # raw HTML string
+            A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
+        result = await self._request("GET", _ACCOUNT_URL, timeout=600)
+        sensitive_headers = {
+            "authorization",
+            "proxy-authorization",
+            "set-cookie",
+            "set-cookie2",
+            "x-api-token",
+        }
+        result["headers"] = {
+            key: value
+            for key, value in result["headers"].items()
+            if key.lower() not in sensitive_headers
+        }
+        return result
+
+    @staticmethod
+    def _integer(name: str, value: int, minimum: int, maximum: int = 2**53 - 1) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
+        return value
+
+    @staticmethod
+    def _text(name: str, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{name} must be a non-empty string")
+        return value.strip()
+
+    @staticmethod
+    def _url(url: str) -> str:
+        try:
+            parsed = urlparse(url)
+            valid = parsed.scheme.lower() in {"http", "https"} and parsed.hostname
+        except (ValueError, TypeError, AttributeError):
+            valid = False
+        if not valid:
+            raise ValueError("url must be an absolute HTTP or HTTPS URL")
+        return url
+
+    @staticmethod
+    def _country(name: str, value: str) -> str:
+        if (
+            not isinstance(value, str)
+            or len(value) != 2
+            or not value.isascii()
+            or not value.isalpha()
+        ):
+            raise ValueError(f"{name} must be a two-letter country code")
+        return value.lower()
+
+    @classmethod
+    def _page_params(cls, url: str, options: dict[str, Any]) -> dict[str, Any]:
+        wait_until = options["wait_until"]
+        if wait_until not in {"domcontentloaded", "load", "networkidle0", "networkidle2"}:
+            raise ValueError(
+                "wait_until must be domcontentloaded, load, networkidle0, or networkidle2"
+            )
         params = {
-            "token": self._token,
-            "timeout": timeout,
-            "geoCode": geo_code,
-            "url": url,
-            "blockResources": str(block_resources).lower(),
+            "url": cls._url(url),
+            "super": options["super"],
+            "waitUntil": wait_until,
+            "timeout": cls._integer("timeout", options["timeout"], 1, 300),
+            "geoCode": cls._country("geo_code", options["geo_code"]),
+            "proxyCountry": cls._country("proxy_country", options["proxy_country"]),
+            "saveResult": options["save_result"],
         }
-        full_url = f"{_FETCH_BASE_URL}?{urlencode(params)}"
-        return await self._get(full_url, timeout=float(timeout + 30))
+        for local, wire in (("proxy", "proxy"), ("wait_for_selector", "waitForSelector")):
+            if options.get(local) is not None:
+                params[wire] = cls._text(local, options[local])
+        if options["max_retries"] is not None:
+            params["maxRetries"] = cls._integer("max_retries", options["max_retries"], 0)
+        for local, wire in (
+            ("block_resources", "blockResources"),
+            ("return_cookie", "returnCookie"),
+        ):
+            if local in options:
+                params[wire] = options[local]
+        for name in (
+            "super",
+            "save_result",
+            "block_resources",
+            "return_cookie",
+            "browser_rendering",
+            "warm_start",
+            "html",
+            "markdown",
+        ):
+            if name in options and not isinstance(options[name], bool):
+                raise ValueError(f"{name} must be a boolean")
+        return params
 
-    async def fetch_google_serp(
+    @staticmethod
+    def _endpoint(params: dict[str, Any]) -> str:
+        values = {k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in params.items()}
+        return f"{_FETCH_BASE_URL}?{urlencode(values)}"
+
+    async def _page_request(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._validate_token()
+        return await self._request("GET", self._endpoint(params), timeout=params["timeout"] + 30)
+
+    async def scrape_html(
         self,
         url: str,
         *,
-        raw: bool = True,
-        timeout: float = 600.0,
+        timeout: int = 300,
+        geo_code: str = "us",
+        proxy_country: str = "us",
+        super: bool = False,
+        wait_until: WaitUntil = "domcontentloaded",
+        proxy: str | None = None,
+        max_retries: int | None = None,
+        save_result: bool = False,
+        block_resources: bool = False,
+        wait_for_selector: str | None = None,
+        return_cookie: bool = False,
+        browser_rendering: bool = False,
+        warm_start: bool = False,
     ) -> dict[str, Any]:
-        """
-        Fetch Google search results (SERP) synchronously.
+        """Retrieve the raw HTML of a page. Browser rendering is optional.
 
         Args:
-            url: Full Google search URL to scrape
-                 (e.g. ``"https://www.google.com/search?q=iphone+17"``).
-            raw: When ``True``, return the raw SERP payload (default ``True``).
-            timeout: Maximum seconds to wait for the request (default 600).
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
 
         Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
+            A response envelope containing status_code, data, and headers.
+        """
+        params = self._page_params(url, locals())
+        params.update(
+            browserRendering=browser_rendering,
+            warmStart=warm_start,
+            html=True,
+            markdown=False,
+            screenshot=False,
+        )
+        return await self._page_request(params)
 
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
+    async def scrape_markdown(
+        self,
+        url: str,
+        *,
+        timeout: int = 300,
+        geo_code: str = "us",
+        proxy_country: str = "us",
+        super: bool = False,
+        wait_until: WaitUntil = "domcontentloaded",
+        proxy: str | None = None,
+        max_retries: int | None = None,
+        save_result: bool = False,
+        block_resources: bool = False,
+        wait_for_selector: str | None = None,
+        return_cookie: bool = False,
+        browser_rendering: bool = False,
+        warm_start: bool = False,
+        html: bool = False,
+    ) -> dict[str, Any]:
+        """Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
 
-        Example::
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
+            html: Whether to include the page HTML in the response.
 
-            result = await client.fetch_google_serp(
-                "https://www.google.com/search?q=iphone+17",
-                raw=True,
-            )
-            print(result["data"])
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
+        params = self._page_params(url, locals())
+        params.update(
+            browserRendering=html or browser_rendering,
+            warmStart=warm_start,
+            html=html,
+            markdown=True,
+            screenshot=False,
+        )
+        return await self._page_request(params)
+
+    async def get_screenshot(
+        self,
+        url: str,
+        *,
+        timeout: int = 300,
+        geo_code: str = "us",
+        proxy_country: str = "us",
+        super: bool = False,
+        wait_until: WaitUntil = "domcontentloaded",
+        proxy: str | None = None,
+        max_retries: int | None = None,
+        save_result: bool = False,
+        block_resources: bool = False,
+        wait_for_selector: str | None = None,
+        return_cookie: bool = False,
+        screenshot: Literal["full", "top"] = "full",
+        html: bool = True,
+        markdown: bool = False,
+    ) -> dict[str, Any]:
+        """Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            screenshot: Screenshot area to capture: full for the entire page or top for the top viewport.
+            html: Whether to include the page HTML in the response.
+            markdown: Whether to include the page Markdown in the response.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
+        if screenshot not in ("full", "top"):
+            raise ValueError("screenshot must be full or top")
+        params = self._page_params(url, locals())
+        params.update(browserRendering=True, screenshot=screenshot, html=html, markdown=markdown)
+        return await self._page_request(params)
+
+    async def scrape_json(
+        self,
+        url: str,
+        prompt: str = DEFAULT_JSON_PROMPT,
+        *,
+        timeout: int = 300,
+        geo_code: str = "us",
+        proxy_country: str = "us",
+        super: bool = False,
+        wait_until: WaitUntil = "domcontentloaded",
+        proxy: str | None = None,
+        max_retries: int | None = None,
+        save_result: bool = False,
+        browser_rendering: bool = False,
+        html: bool = False,
+        screenshot: bool = False,
+    ) -> dict[str, Any]:
+        """Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            prompt: Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            html: Whether to include the page HTML in the response.
+            screenshot: Whether to include a base64 screenshot in the response.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
-        endpoint = f"{_SYNC_BASE_URL}/api/google/serp/sync"
-        payload: dict[str, Any] = {
-            "url": url,
-            "raw": raw,
-        }
-        return await self._post(
-            endpoint,
-            payload=payload,
-            headers=self._bearer_auth_headers(),
-            timeout=timeout,
+        self._text("prompt", prompt)
+        if not isinstance(screenshot, bool):
+            raise ValueError("screenshot must be a boolean")
+        params = self._page_params(url, locals())
+        params.update(
+            browserRendering=browser_rendering,
+            html=html,
+            screenshot=screenshot,
+            agent="general",
+            prompt=prompt,
+        )
+        endpoint = self._endpoint(params)
+        if len(endpoint) <= 8000:
+            return await self._request("GET", endpoint, timeout=timeout + 30)
+        body = {key: params.pop(key) for key in ("url", "prompt", "agent")}
+        return await self._request(
+            "POST", self._endpoint(params), payload=body, timeout=timeout + 30
         )
 
-    async def create_scraper(
+    async def scrape_brand(self, url: str) -> dict[str, Any]:
+        """Extract a website's colors, typography, logos, and social links as JSON.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
+        self._validate_token()
+        return await self._request(
+            "GET",
+            self._endpoint(
+                {
+                    "action": "brand-scraping",
+                    "url": self._url(url),
+                    "bundle": "none",
+                }
+            ),
+            timeout=120,
+        )
+
+    async def web_search(
         self,
-        url: str,
-        message: str,
+        query: str,
         *,
-        agent: Literal["general", "listing", "map"] = "general",
-        proxy_country: str | None = None,
-        max_depth: int = 2,
-        max_pages: int = 50,
-        limit: int = 1000,
-        include_patterns: str = "",
-        exclude_patterns: str = "",
+        country: str = "us",
+        num_results: int = 10,
     ) -> dict[str, Any]:
-        """
-        Create an AI-powered scraper and run it immediately.
-
-        The scraper uses natural-language instructions to understand the page
-        structure and extract the requested data automatically — no CSS
-        selectors required.
+        """Search the web and return ranked results with titles, URLs, descriptions, and sources.
 
         Args:
-            url: Target URL to scrape.
-            message: Natural-language description of what to extract.
-                     Examples: ``"Extract all product names and prices"``,
-                     ``"Get article titles and publication dates"``.
-            agent: AI agent type (default ``"general"``).
-
-                   * ``"general"`` — works on almost any page; best default.
-                   * ``"listing"`` — optimised for listing/grid pages.
-                   * ``"map"`` — crawls all sub-pages of a site.
-            proxy_country: ISO country code for proxy selection (optional).
-                           Examples: ``"US"``, ``"GB"``, ``"SG"``.
-            max_depth: *(map agent only)* Crawl depth from the start URL
-                       (default 2).  0 = start URL only.
-            max_pages: *(map agent only)* Maximum pages to process (default 50).
-            limit: *(map agent only)* Maximum records to extract (default 1000).
-            include_patterns: *(map agent only)* ``||``-separated URL regex
-                              patterns to include when following links.
-            exclude_patterns: *(map agent only)* ``||``-separated URL regex
-                              patterns to skip when following links.
+            query: Search query text, trimmed before sending, containing 1 to 1000 characters.
+            country: Two-letter country code to search from, sent in lowercase.
+            num_results: Number of search results to request, as an integer from 10 to 100. Fewer results may be returned.
 
         Returns:
-            A dict with keys ``status_code``, ``data`` (scraper info including
-            the scraper ID), and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.create_scraper(
-                "https://example.com/products",
-                "Extract all product names, prices, and ratings",
-                agent="listing",
-                proxy_country="US",
-            )
-            scraper_id = result["data"]["id"]
+            A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
-        endpoint = f"{_API_BASE_URL}/scrapers-ai"
-
-        if agent in ("general", "listing"):
-            payload: dict[str, Any] = {
-                "url": url,
-                "message": message,
-                "agent": agent,
-                "proxyCountry": proxy_country,
-            }
-        else:  # map
-            payload = {
-                "url": url,
-                "agent": agent,
-                "maxDepth": max_depth,
-                "maxPages": max_pages,
-                "limit": limit,
-                "includePatterns": include_patterns,
-                "excludePatterns": exclude_patterns,
-            }
-
-        return await self._post(endpoint, payload=payload)
-
-    async def rerun_scraper(
-        self,
-        scraper_id: str,
-        url: str,
-        *,
-        max_depth: int = 2,
-        max_pages: int = 50,
-        limit: int = 1000,
-        include_patterns: str = "",
-        exclude_patterns: str = "",
-    ) -> dict[str, Any]:
-        """
-        Rerun an existing AI scraper on a (new) URL.
-
-        This lets you reuse the extraction logic from a previously created
-        scraper on any compatible URL.
-
-        Args:
-            scraper_id: ID of the scraper to rerun (from :meth:`create_scraper`).
-            url: Target URL.  Can be the original URL or a different page.
-            max_depth: *(map agent only)* Crawl depth (default 2).
-            max_pages: *(map agent only)* Maximum pages (default 50).
-            limit: *(map agent only)* Maximum records (default 1000).
-            include_patterns: *(map agent only)* ``||``-separated include patterns.
-            exclude_patterns: *(map agent only)* ``||``-separated exclude patterns.
-
-        Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.rerun_scraper(
-                scraper_id="scraper_12345",
-                url="https://example.com/category/electronics",
-                max_depth=3,
-                max_pages=100,
-            )
-        """
-        self._validate_token()
-        endpoint = f"{_API_BASE_URL}/scrapers-ai-rerun"
-        payload: dict[str, Any] = {
-            "scraperId": scraper_id,
-            "url": url,
-            "maxDepth": max_depth,
-            "maxPages": max_pages,
-            "limit": limit,
-            "includePatterns": include_patterns,
-            "excludePatterns": exclude_patterns,
-        }
-        return await self._post(endpoint, payload=payload)
-
-    async def bulk_rerun_ai_scraper(
-        self,
-        scraper_id: str,
-        urls: list[str],
-    ) -> dict[str, Any]:
-        """
-        Rerun an existing AI scraper on multiple URLs in a single batch request.
-
-        More efficient than calling :meth:`rerun_scraper` in a loop because all
-        URLs are dispatched in parallel server-side.
-
-        Args:
-            scraper_id: ID of the scraper to rerun (from :meth:`create_scraper`).
-            urls: List of target URLs.  Must contain at least one URL.
-
-        Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.bulk_rerun_ai_scraper(
-                scraper_id="scraper_12345",
-                urls=[
-                    "https://example.com/products/item1",
-                    "https://example.com/products/item2",
-                ],
-            )
-        """
-        self._validate_token()
-        endpoint = f"{_API_BASE_URL}/scrapers-ai-rerun/bulk"
-        payload: dict[str, Any] = {
-            "scraperId": scraper_id,
-            "urls": urls,
-        }
-        return await self._post(endpoint, payload=payload)
-
-    async def rerun_manual_scraper(
-        self,
-        scraper_id: str,
-        url: str,
-    ) -> dict[str, Any]:
-        """
-        Rerun a manually configured scraper (created via the MrScraper dashboard)
-        on a new URL.
-
-        Use this for scrapers built with custom CSS selectors or XPath rules, not
-        for AI scrapers created with :meth:`create_scraper`.
-
-        Args:
-            scraper_id: ID of the manual scraper (found in the MrScraper dashboard).
-            url: Target URL.  The page structure should match the original scraper's
-                 target for selectors to work correctly.
-
-        Returns:
-            A dict with keys ``status_code``, ``data``, and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example:
-            result = await client.rerun_manual_scraper(
-                scraper_id="manual_scraper_67890",
-                url="https://example.com/products/new-item",
-            )
-
-        Warning:
-            Scraping login-protected pages carries serious legal and compliance risks. Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions.
-        """
-        self._validate_token()
-        endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun"
-        payload: dict[str, Any] = {
-            "scraperId": scraper_id,
-            "url": url,
-        }
-        return await self._post(endpoint, payload=payload)
-
-    async def bulk_rerun_manual_scraper(
-        self,
-        scraper_id: str,
-        urls: list[str],
-    ) -> dict[str, Any]:
-        """
-        Rerun a manually configured scraper on multiple URLs in a single batch.
-
-        More efficient than calling :meth:`rerun_manual_scraper` multiple times,
-        as all URLs are processed in parallel server-side. Ideal for scraping
-        multiple pages, products, or articles with the same extraction logic.
-
-        Args:
-            scraper_id: ID of the manual scraper (from the MrScraper dashboard).
-                        Must be a scraper created manually via the web interface,
-                        not an AI scraper. Find it at https://app.mrscraper.com.
-            urls: List of target URLs to scrape. Must contain at least one URL.
-                  Each URL is processed independently using the scraper's logic.
-                  Example: ``["https://example.com/page1", "https://example.com/page2"]``.
-
-        Returns:
-            A dict with keys ``status_code``, ``data`` (bulk job info including job ID,
-            status, metadata; use :meth:`get_all_results` or :meth:`get_result_by_id`
-            to fetch per-URL results), and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example:
-            result = await client.bulk_rerun_manual_scraper(
-                scraper_id="scraper_12345",
-                urls=[
-                    "https://www.example.com/products/item1",
-                    "https://www.example.com/products/item2",
-                    "https://www.example.com/products/item3",
-                ],
-            )
-
-        Warning:
-            Scraping login-protected pages carries serious legal and compliance risks. Many websites explicitly prohibit automated access in their Terms of Service, and bypassing authentication to scrape content may expose you to legal action including lawsuits, account termination, and financial penalties. By proceeding on scraping login-protected pages, you confirm that you have read and understood the target website's Terms of Service, and you fully accept all legal, financial, and ethical responsibility for your actions.
-
-        """
-        self._validate_token()
-        endpoint = f"{_API_BASE_URL}/scrapers-manual-rerun/bulk"
-        payload: dict[str, Any] = {
-            "scraperId": scraper_id,
-            "urls": urls,
-        }
-        return await self._post(endpoint, payload=payload, timeout=600.0)
-
-    async def get_all_results(
-        self,
-        *,
-        sort_field: Literal[
-            "createdAt",
-            "updatedAt",
-            "id",
-            "type",
-            "url",
-            "status",
-            "error",
-            "tokenUsage",
-            "runtime",
-        ] = "updatedAt",
-        sort_order: Literal["ASC", "DESC"] = "DESC",
-        page_size: int = 10,
-        page: int = 1,
-        search: str | None = None,
-        date_range_column: str | None = None,
-        start_at: str | None = None,
-        end_at: str | None = None,
-    ) -> dict[str, Any]:
-        """
-        Retrieve a paginated, sortable, and filterable list of all scraping results.
-
-        Args:
-            sort_field: Field to sort by (default ``"updatedAt"``).
-                        Options: ``"createdAt"``, ``"updatedAt"``, ``"id"``,
-                        ``"type"``, ``"url"``, ``"status"``, ``"error"``,
-                        ``"tokenUsage"``, ``"runtime"``.
-            sort_order: ``"ASC"`` or ``"DESC"`` (default ``"DESC"``).
-            page_size: Results per page (default 10).
-            page: Page number, 1-indexed (default 1).
-            search: Free-text search query across result fields (optional).
-            date_range_column: Column name to filter by date range (optional).
-                               Common values: ``"updatedAt"``, ``"createdAt"``.
-            start_at: ISO-8601 start date for ``date_range_column`` filter (optional).
-                      Example: ``"2024-01-01"`` or ``"2024-01-01T00:00:00"``.
-            end_at: ISO-8601 end date for ``date_range_column`` filter (optional).
-
-        Returns:
-            A dict with keys ``status_code``, ``data`` (paginated results and
-            pagination metadata), and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            page = await client.get_all_results(
-                sort_field="updatedAt",
-                sort_order="DESC",
-                page_size=20,
-                date_range_column="updatedAt",
-                start_at="2024-01-01",
-                end_at="2024-01-08",
-            )
-        """
-        self._validate_token()
-        params: dict[str, Any] = {
-            "sortField": sort_field,
-            "sortOrder": sort_order,
-            "pageSize": page_size,
-            "page": page,
-        }
-        if search is not None:
-            params["search"] = search
-        if date_range_column is not None:
-            params["dateRangeColumn"] = date_range_column
-        if start_at is not None:
-            params["startAt"] = start_at
-        if end_at is not None:
-            params["endAt"] = end_at
-
-        url = f"{_API_BASE_URL}/results?{urlencode(params)}"
-        return await self._get(url, headers=self._auth_headers(), timeout=600.0)
-
-    async def get_result_by_id(self, result_id: str) -> dict[str, Any]:
-        """
-        Retrieve full details of a specific scraping result by its ID.
-
-        Args:
-            result_id: Unique identifier of the result.  Result IDs are returned
-                       by scraper execution methods and by :meth:`get_all_results`.
-
-        Returns:
-            A dict with keys ``status_code``, ``data`` (complete result object),
-            and ``headers``.
-
-        Raises:
-            AuthenticationError: If the API token is invalid.
-            APIError: If the API returns a non-2xx error.
-            NetworkError: If a connection or timeout error occurs.
-
-        Example::
-
-            result = await client.get_result_by_id("result_12345")
-            print(result["data"])
-        """
-        self._validate_token()
-        url = f"{_API_BASE_URL}/results/{result_id}"
-        return await self._get(url, headers=self._auth_headers(), timeout=600.0)
+        query = self._text("query", query)
+        if len(query) > 1000:
+            raise ValueError("query must be 1 to 1000 characters")
+        return await self._request(
+            "GET",
+            self._endpoint(
+                {
+                    "action": "websearch",
+                    "query": query,
+                    "country": self._country("country", country),
+                    "numResults": self._integer("num_results", num_results, 10, 100),
+                }
+            ),
+            timeout=120,
+        )
