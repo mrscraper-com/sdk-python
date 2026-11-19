@@ -9,7 +9,7 @@ from mrscraper import APIError, AuthenticationError, MrScraper, NetworkError
 
 URL = "https://example.com/page?a=1&b=two"
 SERVICES = (
-    "account",
+    "status",
     "scrape_html",
     "scrape_markdown",
     "get_screenshot",
@@ -28,7 +28,7 @@ def test_public_services():
 @pytest.mark.parametrize("name", SERVICES)
 async def test_service_contract(recorded, name):
     client, calls = recorded
-    args = () if name == "account" else ("  web scraping  " if name == "web_search" else URL,)
+    args = () if name == "status" else ("  web scraping  " if name == "web_search" else URL,)
     result = await getattr(client, name)(*args)
     req = calls[0]
     assert req.method == "GET"
@@ -38,8 +38,9 @@ async def test_service_contract(recorded, name):
     assert "token" not in req.url.params
     assert result["status_code"] == 200
     params = dict(req.url.params)
-    if name == "account":
+    if name == "status":
         assert req.url.path == "/api/v1/subscription-accounts"
+        assert req.extensions["timeout"]["read"] == 600
         return
     assert req.url.host == "api.mrscraper.com"
     if name == "scrape_brand":
@@ -47,6 +48,7 @@ async def test_service_contract(recorded, name):
         assert req.extensions["timeout"]["read"] == 120
         return
     if name == "web_search":
+        assert req.extensions["timeout"]["read"] == 120
         assert params == {
             "action": "websearch",
             "query": "web scraping",
@@ -89,7 +91,7 @@ async def test_loading_and_false_zero_options(recorded):
         proxy_country="SG",
         max_retries=0,
         save_result=True,
-        proxy="http://proxy.example",
+        proxy="http://example.com",
         wait_until="networkidle2",
         wait_for_selector=".ready",
         return_cookie=True,
@@ -104,7 +106,7 @@ async def test_loading_and_false_zero_options(recorded):
         "proxyCountry": "sg",
         "maxRetries": "0",
         "saveResult": "true",
-        "proxy": "http://proxy.example",
+        "proxy": "http://example.com",
         "waitUntil": "networkidle2",
         "waitForSelector": ".ready",
         "returnCookie": "true",

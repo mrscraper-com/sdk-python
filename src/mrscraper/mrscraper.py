@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 from typing import Any, Literal
 from urllib.parse import urlencode, urlparse
@@ -163,57 +162,15 @@ class MrScraper:
             ) from exc
         raise APIError(MrScraper._safe_http_error(exc), status_code=status_code) from exc
 
-    async def account(self, *, timeout: float = 30.0) -> dict[str, Any]:
-        """Return account identity, subscription, quota, and rate limits.
+    async def status(self) -> dict[str, Any]:
+        """Return the raw account API response in the standard response envelope.
 
-        Calls ``GET /subscription-accounts`` using the client's token. The
-        response has ``status_code``, ``data``, and ``headers`` keys. ``data``
-        contains a summary, excluding API tokens and billing identifiers.
-        ``timeout`` is the HTTP deadline in seconds and must be positive.
+        Calls ``GET /subscription-accounts`` with the CLI's fixed 600-second
+        HTTP deadline. The response body is preserved without summarizing,
+        redacting, or adding calculated fields.
         """
         self._validate_token()
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be greater than 0 seconds")
-        result = await self._request("GET", _ACCOUNT_URL, timeout=timeout)
-        body = result["data"]
-        details = body.get("data", body) if isinstance(body, dict) else body
-        if not isinstance(details, dict):
-            raise APIError(
-                "Account response must contain an object", status_code=result["status_code"]
-            )
-
-        def number_or_zero(value: Any) -> float:
-            try:
-                parsed = float(value)
-            except (ValueError, TypeError):
-                return 0
-            return parsed if math.isfinite(parsed) else 0
-
-        def string_or_none(value: Any) -> str | None:
-            return value if isinstance(value, str) else None
-
-        token_limit = number_or_zero(details.get("tokenLimit"))
-        token_usage = number_or_zero(details.get("tokenUsage"))
-        user = details.get("user")
-        if not isinstance(user, dict):
-            user = {}
-        result["data"] = {
-            "subscription_status": string_or_none(details.get("stripeStatus")),
-            "enterprise": bool(details.get("isEnterprise")),
-            "token_usage": token_usage,
-            "token_limit": token_limit,
-            "token_remaining": max(0, token_limit - token_usage),
-            "usage_percent": round(token_usage / token_limit * 100, 2) if token_limit > 0 else 0,
-            "rate_limit": number_or_zero(details.get("rateLimit")),
-            "rate_ttl": number_or_zero(details.get("rateTtl")),
-            "auto_renew": bool(details.get("isAutoRenew")),
-            "ends_at": string_or_none(details.get("endsAt")),
-            "user": {
-                "name": string_or_none(user.get("name")),
-                "email": string_or_none(user.get("email")),
-                "verified": bool(user.get("isVerified")),
-            },
-        }
+        result = await self._request("GET", _ACCOUNT_URL, timeout=600)
         sensitive_headers = {
             "authorization",
             "proxy-authorization",
@@ -449,15 +406,12 @@ class MrScraper:
         *,
         country: str = "us",
         num_results: int = 10,
-        timeout: float = 120.0,
     ) -> dict[str, Any]:
         """Search the web for ranked titles, URLs, descriptions, and sources."""
         self._validate_token()
         query = self._text("query", query)
         if len(query) > 1000:
             raise ValueError("query must be 1 to 1000 characters")
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be greater than 0 seconds")
         return await self._request(
             "GET",
             self._endpoint(
@@ -468,5 +422,5 @@ class MrScraper:
                     "numResults": self._integer("num_results", num_results, 10, 100),
                 }
             ),
-            timeout=timeout,
+            timeout=120,
         )

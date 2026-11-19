@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from mrscraper import MrScraper
 
 METHOD_ORDER = (
-    "account",
+    "status",
     "scrape-html",
     "scrape-markdown",
     "get-screenshot",
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=lambda s: s.replace("_", "-"),
         choices=("all", *METHOD_ORDER),
     )
-    parser.add_argument("--url", default="https://books.toscrape.com/")
+    parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--query", default="python web scraping")
     parser.add_argument(
         "--args", default="{}", help="JSON keyword options, using Python snake_case names"
@@ -49,7 +49,7 @@ async def run_method(client: MrScraper, args: argparse.Namespace) -> dict[str, A
     if not isinstance(options, dict):
         raise ValueError("--args must be a JSON object")
     method = getattr(client, args.method.replace("-", "_"))
-    if args.method == "account":
+    if args.method == "status":
         return await method(**options)
     return await method(args.query if args.method == "web-search" else args.url, **options)
 

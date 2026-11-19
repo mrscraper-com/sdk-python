@@ -60,7 +60,6 @@ async def test_invalid_controls_do_not_send(recorded, method, options):
         ("ok", {"num_results": 101}),
         ("ok", {"num_results": True}),
         ("ok", {"num_results": 10.5}),
-        ("ok", {"timeout": 0}),
     ],
 )
 async def test_invalid_search_controls(recorded, query, options):
@@ -81,4 +80,13 @@ async def test_json_rejects_unsupported_loading_controls(recorded):
     client, calls = recorded
     with pytest.raises(TypeError):
         await client.scrape_json(URL, block_resources=True)
+    assert calls == []
+
+
+async def test_status_and_search_do_not_expose_transport_timeout(recorded):
+    client, calls = recorded
+    with pytest.raises(TypeError):
+        await client.status(timeout=30)
+    with pytest.raises(TypeError):
+        await client.web_search("query", timeout=120)
     assert calls == []

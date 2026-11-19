@@ -16,7 +16,7 @@ async def test_manual_dispatch(recorded, name):
 
 def test_manual_services():
     assert runner.METHOD_ORDER == (
-        "account",
+        "status",
         "scrape-html",
         "scrape-markdown",
         "get-screenshot",

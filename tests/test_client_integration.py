@@ -8,7 +8,7 @@ from mrscraper import MrScraper
 
 pytestmark = pytest.mark.integration
 SERVICES = (
-    "account",
+    "status",
     "scrape_html",
     "scrape_markdown",
     "get_screenshot",
@@ -26,8 +26,8 @@ async def test_live_service(name):
         pytest.skip("Set a token")
     args = (
         ()
-        if name == "account"
-        else ("web scraping" if name == "web_search" else "https://books.toscrape.com/",)
+        if name == "status"
+        else ("web scraping" if name == "web_search" else "https://example.com",)
     )
     result = await getattr(MrScraper(), name)(*args)
     assert result["status_code"] == 200
