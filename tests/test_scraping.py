@@ -90,3 +90,25 @@ async def test_status_and_search_do_not_expose_transport_timeout(recorded):
     with pytest.raises(TypeError):
         await client.web_search("query", timeout=120)
     assert calls == []
+
+
+@pytest.mark.parametrize("method", ["scrape_html", "scrape_markdown"])
+async def test_warm_start_is_forwarded_and_strictly_boolean(recorded, method):
+    client, calls = recorded
+    operation = getattr(client, method)
+    for value in [False, True]:
+        await operation(URL, warm_start=value)
+        assert calls[-1].url.params["warmStart"] == str(value).lower()
+    sent = len(calls)
+    for value in ["true", 1, None]:
+        with pytest.raises(ValueError, match="warm_start must be a boolean"):
+            await operation(URL, warm_start=value)
+    assert len(calls) == sent
+
+
+@pytest.mark.parametrize("method", ["get_screenshot", "scrape_json"])
+async def test_warm_start_is_not_exposed_on_other_page_services(recorded, method):
+    client, calls = recorded
+    with pytest.raises(TypeError):
+        await getattr(client, method)(URL, warm_start=True)
+    assert calls == []

@@ -2,694 +2,433 @@
 
 ![MrScraper](./mrscraper.jpeg)
 
-An async Python client for the MrScraper API, with seven services matching the [MrScraper CLI](https://github.com/mrscraper-com/cli).
+An async Python client for the seven MrScraper services.
 
-| Service | Python method | Purpose |
-| --- | --- | --- |
-| [Status](#status) | `status()` | Account identity, subscription, token quota, and rate limits |
-| [HTML](#scrape-html) | `scrape_html(url, ...)` | Raw page HTML |
-| [Markdown](#scrape-markdown) | `scrape_markdown(url, ...)` | Page content as Markdown, optionally with HTML |
-| [Screenshot](#get-screenshot) | `get_screenshot(url, ...)` | Full-page or top-viewport screenshot, optionally with HTML and Markdown |
-| [Brand](#scrape-brand) | `scrape_brand(url)` | Website brand data as JSON |
-| [JSON extraction](#scrape-json) | `scrape_json(url, prompt=..., ...)` | Structured data extracted according to a prompt |
-| [Web search](#web-search) | `web_search(query, ...)` | Ranked search results with titles, URLs, and descriptions |
+## Overview
 
-## Contents
+Seven services share the same descriptions, parameter meanings, and defaults across the CLI, SDKs, and integrations. Names, types, authentication, and code examples follow each surface's conventions. The standard reference is maintained in [docs/service-reference.json](docs/service-reference.json).
 
-- [Installation and authentication](#installation-and-authentication)
-- [Quickstart](#quickstart)
-- [Payloads and parameter names](#payloads-and-parameter-names)
-- [Shared page parameters](#shared-page-parameters)
-- [Service examples](#service-examples)
-- [Response format](#response-format)
-- [Error handling](#error-handling)
-- [Reusing an HTTP client](#reusing-an-http-client)
-- [HTTP contract and request payloads](#http-contract-and-request-payloads)
-- [Manual testing](#manual-testing)
-- [Migration](#migration)
-- [Development and publishing](#development-and-publishing)
+| Service                             | Public name       | Description                                                                                                                     |
+| ----------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [Status](#status)                   | `status`          | Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.             |
+| [Scrape HTML](#scrape-html)         | `scrape_html`     | Retrieve the raw HTML of a page. Browser rendering is optional.                                                                 |
+| [Scrape Markdown](#scrape-markdown) | `scrape_markdown` | Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.                    |
+| [Get screenshot](#get-screenshot)   | `get_screenshot`  | Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.                              |
+| [Scrape brand](#scrape-brand)       | `scrape_brand`    | Extract a website's colors, typography, logos, and social links as JSON.                                                        |
+| [Scrape JSON](#scrape-json)         | `scrape_json`     | Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output. |
+| [Web search](#web-search)           | `web_search`      | Search the web and return ranked results with titles, URLs, descriptions, and sources.                                          |
 
-## Installation and authentication
+## Installation
 
-Requires Python 3.9+. Obtain a MrScraper API token from [the app](https://app.mrscraper.com).
+Requires Python 3.9 or newer.
 
 ```bash
-python3 -m pip install --upgrade mrscraper-sdk
-export MRSCRAPER_API_TOKEN='YOUR_MRSCRAPER_TOKEN'
+python -m pip install --upgrade mrscraper-sdk
 ```
 
-Create the client with `MrScraper()` to use the environment variable, or pass `MrScraper(token="YOUR_MRSCRAPER_TOKEN")` explicitly. The client looks for credentials in this order: a nonempty `token` argument, `MRSCRAPER_API_TOKEN`, then `MRSCRAPER_API_KEY`.
+## Authentication
 
-| Client argument | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `token` | `str` or `None` | `None` | MrScraper API token. When omitted, use the environment variables above. |
-| `http_client` | `httpx.AsyncClient` or `None` | `None` | Optional HTTP client to reuse across calls. You manage its lifetime; see [Reusing an HTTP client](#reusing-an-http-client). |
+Obtain an API key from [the MrScraper app](https://app.mrscraper.com/api-tokens). API key used to authenticate the request.
+
+```bash
+export MRSCRAPER_API_TOKEN="YOUR_TOKEN"
+```
+
+Use `MrScraper()` to read the environment or `MrScraper(token="YOUR_TOKEN")` for an explicit credential. Precedence is a nonempty `token`, `MRSCRAPER_API_TOKEN`, then `MRSCRAPER_API_KEY`. Authentication belongs to the client, not individual service parameters.
 
 ## Quickstart
 
-Save this as `example.py`, then run `python3 example.py` after exporting your token:
-
 ```python
 import asyncio
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    result = await client.scrape_html("https://example.com")
-    print(result["status_code"])
+    result = await client.scrape_html('https://example.com', browser_rendering=True, warm_start=True, wait_for_selector='.content', timeout=120, max_retries=0)
     print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-All seven methods are async and must be awaited. In a notebook with an active event loop, call `await main()` instead of `asyncio.run(main())`. Examples make live API calls and use your account quota.
+Examples use `example.com` as the sample target. Replace it for your use case. Live scraping and search calls consume account quota.
 
-## Payloads and parameter names
-
-The SDK takes Python arguments. You can collect them in a dictionary named `payload` and unpack it with `**payload`:
-
-```python
-payload = {
-    "url": "https://example.com",
-    "browser_rendering": True,
-    "timeout": 120,
-}
-
-# Inside an async function, with an initialized client:
-# result = await client.scrape_html(**payload)
-```
-
-This is equivalent to `await client.scrape_html(url="https://example.com", browser_rendering=True, timeout=120)`. The dictionary is a convenient way to organize arguments; the methods do not accept a `payload=` argument. The service examples below show complete scripts using this pattern.
-
-Use **Python parameter names** in SDK calls and in the manual runner's `--args`. The SDK converts them to the **HTTP parameter names** shown below. For example, use `browser_rendering`, not `browserRendering`, and `num_results`, not `numResults`.
-
-Python dictionaries use `True`, `False`, and `None`. JSON, including `--args`, uses `true`, `false`, and `null`. Optional page controls set to `None` are omitted from the HTTP request. Explicit `False` and `0` values are preserved.
-
-## Shared page parameters
+## Shared parameters
 
 ### Page controls
 
-These parameters apply to `scrape_html`, `scrape_markdown`, `get_screenshot`, and `scrape_json`.
+HTML, Markdown, screenshots, and JSON extraction share `url`, `timeout`, `geoCode`, `proxyCountry`, `super`, `waitUntil`, `proxy`, `maxRetries`, and `saveResult` (using the naming style shown below). Page defaults are 300 seconds, US geolocation/proxy country, real-device routing off, and dashboard saving off. Omitted retry limits mean no limit. Exact types, defaults, and standard descriptions appear in each service table.
 
-| Python parameter | HTTP parameter | Type | Default | Meaning and accepted values |
-| --- | --- | --- | --- | --- |
-| `url` | `url` | `str` | Required | The page to process. Must be an absolute `http://` or `https://` URL, such as `https://example.com`. |
-| `timeout` | `timeout` | `int` | `300` | Page processing deadline in seconds, from `1` to `300`. The SDK uses an HTTP timeout of this value plus 30 seconds. |
-| `geo_code` | `geoCode` | `str` | `"us"` | Country code supplied for page geolocation. Must contain two ASCII letters; for example, `"us"` or `"id"`. Sent in lowercase. |
-| `proxy_country` | `proxyCountry` | `str` | `"us"` | Country of the proxy server used for the request. Must contain two ASCII letters and is sent in lowercase. |
-| `super` | `super` | `bool` | `False` | Request real-device routing when `True`. |
-| `wait_until` | `waitUntil` | `str` | `"domcontentloaded"` | Browser loading condition: `"domcontentloaded"`, `"load"`, `"networkidle0"`, or `"networkidle2"`. See below. |
-| `proxy` | `proxy` | `str` or `None` | `None` | Custom proxy URL. When provided, it must be a nonempty string. `None` omits the parameter. |
-| `max_retries` | `maxRetries` | `int` or `None` | `None` | Retry limit requested from the API. Accepted range: `0` to `2**53 - 1`. `None` omits an explicit retry limit; the SDK does not run its own retry loop. |
-| `save_result` | `saveResult` | `bool` | `False` | Save the result in the MrScraper dashboard when `True`. |
+### Loading controls
 
-`wait_until="domcontentloaded"` requests the DOM-ready condition; `"load"` requests the page load event. `"networkidle0"` and `"networkidle2"` request the API's browser network-idle conditions. Use `browser_rendering=True` when you need browser execution, and `wait_for_selector` when a particular element must be available.
+HTML, Markdown, and screenshots additionally accept `blockResources`, `waitForSelector`, and `returnCookie`. JSON extraction does not accept these controls. Browser rendering is optional for HTML, Markdown, and JSON; screenshots always enable it. Markdown with HTML also enables browser rendering.
 
-### Rendering, loading, and cookies
-
-| Python parameter | HTTP parameter | Type | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `browser_rendering` | `browserRendering` | `bool` | `False` | Enable browser rendering, including JavaScript execution. Available on HTML, Markdown, and JSON extraction. Screenshots always enable rendering and do not take this argument. |
-| `block_resources` | `blockResources` | `bool` | `False` | Block images, fonts, and stylesheets. Available on HTML, Markdown, and screenshots. Blocking these resources can change a screenshot's appearance. |
-| `wait_for_selector` | `waitForSelector` | `str` or `None` | `None` | Wait for a CSS selector such as `"body"` or `".listing-card"`. A provided selector must be a nonempty string. Available on HTML, Markdown, and screenshots. |
-| `return_cookie` | `returnCookie` | `bool` | `False` | Request session cookies in the API response. Available on HTML, Markdown, and screenshots. The SDK preserves the API's response structure. |
-
-| Parameter group | HTML | Markdown | Screenshot | JSON extraction |
-| --- | --- | --- | --- | --- |
-| Page controls above | Yes | Yes | Yes | Yes |
-| `browser_rendering` argument | Yes | Yes | Always enabled internally | Yes |
-| `block_resources`, `wait_for_selector`, `return_cookie` | Yes | Yes | Yes | Unavailable |
-
-Status, brand, and web search use their own parameter sets. Their accepted arguments and fixed transport deadlines are described in their service sections.
-
-## Service examples
-
-Each example below is a standalone Python script. They use `https://example.com`; replace the URL or search query for your use case. Fields not included in a payload use the defaults documented above.
+## Service reference
 
 ### Status
 
-Return the raw account API response. This method takes no service parameters
-and uses the same fixed 600-second HTTP deadline as the CLI. Authentication
-comes from the client.
+#### Description
+
+Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.
+
+#### Parameters
+
+This service takes no service parameters. Authentication is configured separately.
+
+The HTTP deadline is fixed at 600 seconds. It is not a service parameter.
+
+#### Example
 
 ```python
 import asyncio
-import json
-
 from mrscraper import MrScraper
 
-
 async def main():
-    result = await MrScraper().status()
-    print(json.dumps(result["data"], indent=2))
+    client = MrScraper()
+    result = await client.status()
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-`result["data"]` is the complete API response body with its original fields,
-nesting, and values. The SDK does not unwrap it, redact account fields, or
-calculate remaining tokens or percentages. Sensitive response headers are
-removed. If the API wraps account details in `data`, access them through
-`result["data"]["data"]`.
+#### Response
+
+The complete account API response body is preserved inside data. If the API wraps account details in data, those details are available at data.data. Sensitive response headers are removed.
 
 ### Scrape HTML
 
-Retrieve the page's HTML. This example lists every supported argument and enables browser rendering to execute JavaScript before returning the page.
+#### Description
+
+Retrieve the raw HTML of a page. Browser rendering is optional.
+
+#### Parameters
+
+| Parameter           | HTTP field         | Type                                                            | Default              | Description                                                                                     |
+| ------------------- | ------------------ | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
+| `timeout`           | `timeout`          | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
+| `geo_code`          | `geoCode`          | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
+| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
+| `super`             | `super`            | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
+| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
+| `proxy`             | `proxy`            | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
+| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
+| `save_result`       | `saveResult`       | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
+| `block_resources`   | `blockResources`   | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
+| `wait_for_selector` | `waitForSelector`  | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
+| `return_cookie`     | `returnCookie`     | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
+| `browser_rendering` | `browserRendering` | bool                                                            | `False`              | Whether to render the page in a browser before returning the result.                            |
+| `warm_start`        | `warmStart`        | bool                                                            | `False`              | Whether to enable warm start for more reliable scraping, at the cost of additional latency.     |
+
+#### Example
 
 ```python
 import asyncio
-from pathlib import Path
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {
-        "url": "https://example.com",
-        "timeout": 300,
-        "geo_code": "us",
-        "proxy_country": "us",
-        "super": False,
-        "wait_until": "domcontentloaded",
-        "proxy": None,
-        "max_retries": None,
-        "save_result": False,
-        "block_resources": False,
-        "wait_for_selector": "body",
-        "return_cookie": False,
-        "browser_rendering": True,
-    }
-    result = await client.scrape_html(**payload)
-    html = result["data"]
-    if isinstance(html, str):
-        Path("example.html").write_text(html, encoding="utf-8")
-    else:
-        print(html)  # Inspect the API's structure when extra response data is returned.
+    result = await client.scrape_html('https://example.com', browser_rendering=True, warm_start=True, wait_for_selector='.content', timeout=120, max_retries=0)
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK sets the HTTP output flags `html=true`, `markdown=false`, and `screenshot=false`. These flags are selected by the method and are not arguments to `scrape_html`. A normal HTML response is available as a string at `result["data"]`.
+#### Response
+
+The default response body is HTML text. Additional controls can cause the API to return JSON; the returned structure is preserved.
 
 ### Scrape Markdown
 
-Retrieve page content as Markdown. In addition to the shared page and loading controls, this method accepts:
+#### Description
 
-| Python / HTTP parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `html` | `bool` | `False` | Include HTML alongside Markdown. Setting this to `True` forces browser rendering, even if `browser_rendering=False`. |
+Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
+
+#### Parameters
+
+| Parameter           | HTTP field         | Type                                                            | Default              | Description                                                                                     |
+| ------------------- | ------------------ | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
+| `timeout`           | `timeout`          | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
+| `geo_code`          | `geoCode`          | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
+| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
+| `super`             | `super`            | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
+| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
+| `proxy`             | `proxy`            | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
+| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
+| `save_result`       | `saveResult`       | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
+| `block_resources`   | `blockResources`   | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
+| `wait_for_selector` | `waitForSelector`  | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
+| `return_cookie`     | `returnCookie`     | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
+| `browser_rendering` | `browserRendering` | bool                                                            | `False`              | Whether to render the page in a browser before returning the result.                            |
+| `warm_start`        | `warmStart`        | bool                                                            | `False`              | Whether to enable warm start for more reliable scraping, at the cost of additional latency.     |
+| `html`              | `html`             | bool                                                            | `False`              | Whether to include the page HTML in the response.                                               |
+
+#### Example
 
 ```python
 import asyncio
-import json
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {
-        "url": "https://example.com",
-        "html": True,
-        "wait_for_selector": "body",
-        "timeout": 120,
-    }
-    result = await client.scrape_markdown(**payload)
-    print(json.dumps(result["data"], indent=2))
+    result = await client.scrape_markdown('https://example.com', html=True, warm_start=True)
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK sets `markdown=true` and `screenshot=false`. With `html=False`, a normal Markdown response is a string. With `html=True`, inspect `result["data"]` for the API's combined HTML and Markdown object; the SDK does not flatten it.
+#### Response
+
+The default response body is Markdown text. Enabling HTML returns JSON containing both HTML and Markdown.
 
 ### Get screenshot
 
-Capture a screenshot. Browser rendering is always enabled. Shared page and loading controls are supported, but there is no `browser_rendering` argument.
+#### Description
 
-| Python / HTTP parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `screenshot` | `str` | `"full"` | `"full"` captures the full page; `"top"` captures the top viewport. This parameter is a string for this method. |
-| `html` | `bool` | `True` | Include HTML in the response. |
-| `markdown` | `bool` | `False` | Include Markdown in the response. |
+Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+
+#### Parameters
+
+| Parameter           | HTTP field        | Type                                                            | Default              | Description                                                                                     |
+| ------------------- | ----------------- | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`               | `url`             | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
+| `timeout`           | `timeout`         | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
+| `geo_code`          | `geoCode`         | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
+| `proxy_country`     | `proxyCountry`    | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
+| `super`             | `super`           | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
+| `wait_until`        | `waitUntil`       | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
+| `proxy`             | `proxy`           | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
+| `max_retries`       | `maxRetries`      | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
+| `save_result`       | `saveResult`      | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
+| `block_resources`   | `blockResources`  | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
+| `wait_for_selector` | `waitForSelector` | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
+| `return_cookie`     | `returnCookie`    | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
+| `screenshot`        | `screenshot`      | str: `full`, `top`                                              | `"full"`             | Screenshot area to capture: full for the entire page or top for the top viewport.               |
+| `html`              | `html`            | bool                                                            | `True`               | Whether to include the page HTML in the response.                                               |
+| `markdown`          | `markdown`        | bool                                                            | `False`              | Whether to include the page Markdown in the response.                                           |
+
+#### Example
 
 ```python
 import asyncio
-import base64
-from pathlib import Path
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {
-        "url": "https://example.com",
-        "screenshot": "full",
-        "html": True,
-        "markdown": True,
-        "block_resources": False,
-        "wait_for_selector": "body",
-        "timeout": 120,
-    }
-    result = await client.get_screenshot(**payload)
-    data = result["data"]
-    if isinstance(data, bytes):
-        image_bytes = data
-    else:
-        encoded = data["screenshot"] if isinstance(data, dict) else data
-        # Accept plain base64 or a data URL such as data:image/png;base64,...
-        image_bytes = base64.b64decode(encoded.split(",", 1)[-1])
-    Path("example-screenshot.png").write_bytes(image_bytes)
+    result = await client.get_screenshot('https://example.com', screenshot='top', html=False, markdown=True)
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-For a combined JSON response, the base64 image is in `result["data"]["screenshot"]`. The example also handles a direct base64 string or a binary image response according to the API's content type.
+#### Response
+
+The response body contains a base64 screenshot and requested page outputs. The API can still include HTML when HTML output is disabled.
 
 ### Scrape brand
 
-Extract website brand data as JSON. This method only accepts `url`, which must be an absolute HTTP or HTTPS URL. It uses a fixed 120-second HTTP timeout.
+#### Description
+
+Extract a website's colors, typography, logos, and social links as JSON.
+
+#### Parameters
+
+| Parameter | HTTP field | Type | Default  | Description                                        |
+| --------- | ---------- | ---- | -------- | -------------------------------------------------- |
+| `url`     | `url`      | str  | Required | Absolute HTTP or HTTPS URL of the page to process. |
+
+The HTTP deadline is fixed at 120 seconds. It is not a service parameter.
+
+The request uses `action=brand-scraping` and `bundle=none`; page controls are not accepted.
+
+#### Example
 
 ```python
 import asyncio
-import json
-from pathlib import Path
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {"url": "https://example.com"}
-    result = await client.scrape_brand(**payload)
-    brand_response = result["data"]
-    Path("example-brand.json").write_text(
-        json.dumps(brand_response, indent=2), encoding="utf-8"
-    )
-    print(brand_response)
+    result = await client.scrape_brand('https://example.com')
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK adds these HTTP fields automatically:
+#### Response
 
-| HTTP parameter | Fixed value | Meaning |
-| --- | --- | --- |
-| `action` | `"brand-scraping"` | Select brand extraction. |
-| `bundle` | `"none"` | Request the JSON result without downloading a brand bundle. |
-
-Do not pass `action`, `bundle`, or page controls to `scrape_brand`. The SDK returns the API's JSON structure unchanged inside `result["data"]`; inspect that object for the returned brand fields.
+The response body preserves the API brand result. Brand data is typically available at data.data.brand in the response envelope.
 
 ### Scrape JSON
 
-Extract structured data according to a prompt. All shared page controls and `browser_rendering` are supported. `block_resources`, `wait_for_selector`, and `return_cookie` are not accepted by this method.
+#### Description
 
-| Python / HTTP parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `prompt` | `str` | `"Extract all data as complete as possible."` | Instructions describing the data to extract. Must contain non-whitespace text. Include field names and missing-value instructions for a more specific result. |
-| `html` | `bool` | `False` | Request HTML alongside the extraction. |
-| `screenshot` | `bool` | `False` | Request a screenshot alongside the extraction. This method takes `True` or `False`, rather than `"full"` or `"top"`. |
+Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
+
+#### Parameters
+
+| Parameter           | HTTP field         | Type                                                            | Default                                       | Description                                                                                             |
+| ------------------- | ------------------ | --------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str                                                             | Required                                      | Absolute HTTP or HTTPS URL of the page to process.                                                      |
+| `timeout`           | `timeout`          | int                                                             | `300`                                         | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.             |
+| `geo_code`          | `geoCode`          | str                                                             | `"us"`                                        | Two-letter country code to load the page from, sent in lowercase.                                       |
+| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`                                        | Two-letter country code of the proxy server, sent in lowercase.                                         |
+| `super`             | `super`            | bool                                                            | `False`                                       | Whether to route the request through real devices.                                                      |
+| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"`                          | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.         |
+| `proxy`             | `proxy`            | str                                                             | `None` (omitted)                              | Custom proxy URL used to load the page.                                                                 |
+| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)                              | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                  |
+| `save_result`       | `saveResult`       | bool                                                            | `False`                                       | Whether to save the result to the dashboard Result tab.                                                 |
+| `prompt`            | `prompt`           | str                                                             | `"Extract all data as complete as possible."` | Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output. |
+| `browser_rendering` | `browserRendering` | bool                                                            | `False`                                       | Whether to render the page in a browser before returning the result.                                    |
+| `html`              | `html`             | bool                                                            | `False`                                       | Whether to include the page HTML in the response.                                                       |
+| `screenshot`        | `screenshot`       | bool                                                            | `False`                                       | Whether to include a base64 screenshot in the response.                                                 |
+
+The request uses `agent=general` and GET. If the encoded URL exceeds 8,000 characters, it switches to POST with `url`, `prompt`, and `agent` in the body; page controls remain in the query.
+
+#### Example
 
 ```python
 import asyncio
-import json
-from pathlib import Path
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {
-        "url": "https://example.com",
-        "prompt": (
-            "Extract property listings visible on this page. "
-            "For each listing, return title, price, location, and URL. "
-            "Use null for missing fields and return the listings in a listings array."
-        ),
-        "browser_rendering": True,
-        "timeout": 180,
-        "html": False,
-        "screenshot": False,
-    }
-    result = await client.scrape_json(**payload)
-    Path("example-properties.json").write_text(
-        json.dumps(result["data"], indent=2), encoding="utf-8"
-    )
+    result = await client.scrape_json('https://example.com', prompt='Extract the page title. Json Schema: {"type":"object","properties":{"title":{"type":"string"}}}', browser_rendering=True)
     print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK sets `agent="general"` internally. It preserves the API's extraction response, including any `success`, `data`, or metadata fields, inside `result["data"]`.
+#### Response
 
-To describe an output schema, append `Json Schema:` and a JSON schema to your prompt. For example, this builds a prompt for extracting the page title:
-
-```python
-import json
-
-schema = {
-    "type": "object",
-    "properties": {"title": {"type": "string"}},
-    "required": ["title"],
-}
-prompt = "Extract the page title.\nJson Schema:\n" + json.dumps(schema)
-```
-
-Use that string as the `prompt` value in the previous payload. The schema is part of the extraction instructions; the SDK does not validate the response against it. The SDK automatically switches from GET to POST when the complete encoded request URL exceeds 8,000 characters; see [HTTP contract and request payloads](#http-contract-and-request-payloads).
+The response body contains the extraction result in the API's original structure. Optional HTML and screenshot outputs may add fields.
 
 ### Web search
 
-Search the web using a query. To focus the search on example.com, the example uses `site:example.com properties`. This service takes a query rather than a target `url`.
+#### Description
 
-| Python parameter | HTTP parameter | Type | Default | Meaning and accepted values |
-| --- | --- | --- | --- | --- |
-| `query` | `query` | `str` | Required | Search text. Leading and trailing whitespace is removed; the remaining query must contain 1–1,000 characters. |
-| `country` | `country` | `str` | `"us"` | Search country. Must contain two ASCII letters, such as `"us"` or `"id"`, and is sent in lowercase. |
-| `num_results` | `numResults` | `int` | `10` | Requested number of search results, from `10` to `100`. |
+Search the web and return ranked results with titles, URLs, descriptions, and sources.
+
+#### Parameters
+
+| Parameter     | HTTP field   | Type | Default  | Description                                                                                       |
+| ------------- | ------------ | ---- | -------- | ------------------------------------------------------------------------------------------------- |
+| `query`       | `query`      | str  | Required | Search query text, trimmed before sending, containing 1 to 1000 characters.                       |
+| `country`     | `country`    | str  | `"us"`   | Two-letter country code to search from, sent in lowercase.                                        |
+| `num_results` | `numResults` | int  | `10`     | Number of search results to request, as an integer from 10 to 100. Fewer results may be returned. |
+
+The HTTP deadline is fixed at 120 seconds. It is not a service parameter.
+
+#### Example
 
 ```python
 import asyncio
-
 from mrscraper import MrScraper
-
 
 async def main():
     client = MrScraper()
-    payload = {
-        "query": "site:example.com properties",
-        "country": "us",
-        "num_results": 10,
-    }
-    result = await client.web_search(**payload)
-    body = result["data"]
-    if body.get("success") is False:
-        raise RuntimeError(body.get("message", "Search failed"))
-    for item in body["data"]:
-        print(item["rank"], item["title"], item["url"])
+    result = await client.web_search('site:example.com documentation', country='id', num_results=20)
+    print(result["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK adds `action="websearch"`. A search JSON response contains `success`, `message`, and a `data` array. Each result has `rank`, `title`, `url`, `description`, and `source`. Because the SDK also uses a `data` wrapper, the result array is accessed as `result["data"]["data"]`.
+#### Response
+
+The response body contains success, message, and a data array. Each result includes rank, title, url, description, and source.
 
 ## Response format
 
-Every service returns a dictionary with the same outer fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `status_code` | `int` | Successful HTTP response status. HTTP error statuses raise exceptions instead. |
-| `data` | Depends on content type | Parsed response body, preserving the API structure and values for all seven services. |
-| `headers` | `dict` | Response headers. Status removes sensitive headers. |
-
-For example, an HTML response is wrapped like this:
+Successful services use an envelope containing `status_code`, `data`, and `headers`. The `data` field contains the API response body; its field names are not converted to the SDK's naming style. Status preserves the complete body without adding summary fields.
 
 ```json
 {
   "status_code": 200,
-  "data": "<html><body>Page content</body></html>",
-  "headers": {
-    "content-type": "text/html"
-  }
+  "data": "<html><body>Example</body></html>",
+  "headers": { "content-type": "text/html" }
 }
 ```
 
-JSON bodies become Python values; HTML, Markdown, and other text bodies remain strings; binary bodies remain `bytes`. Combined outputs retain the upstream JSON structure. Requesting extra outputs or cookies can change the inner response shape, so inspect `result["data"]` before selecting nested fields.
-
-An HTTP 200 response can still contain an API-level failure such as `{"success": false, "message": "..."}`. The SDK preserves that body and does not raise an exception based on its `success` field. Check it when the service returns such a field.
+Responses are Python dictionaries. JSON becomes Python values, text remains `str`, and binary remains `bytes`. Sensitive response headers are removed for status.
 
 ## Error handling
 
-| Exception | Meaning |
-| --- | --- |
-| `AuthenticationError` | Missing/blank API token or an HTTP 401 response. |
-| `APIError` | Other HTTP error statuses. The `status_code` attribute contains the HTTP status when available. |
-| `NetworkError` | HTTP transport failure, such as a connection error or timeout. |
-| `ValueError` | Invalid parameter value, such as an unsupported URL, timeout, country code, or screenshot mode. |
-| `TypeError` | Unsupported method argument, such as passing `return_cookie` to `scrape_json`. |
-
-The three SDK exceptions inherit from `MrScraperError`. Parameter validation errors are standard Python exceptions.
+Authentication failures raise `AuthenticationError`; other HTTP error statuses raise `APIError`; connection and timeout failures raise `NetworkError`. `APIError.status_code` contains the HTTP status when available. Invalid arguments raise `ValueError` or `TypeError` before the request.
 
 ```python
 import asyncio
-
-from mrscraper import APIError, AuthenticationError, MrScraper, NetworkError
-
+from mrscraper import MrScraper, APIError, AuthenticationError, NetworkError
 
 async def main():
     try:
-        result = await MrScraper().scrape_html("https://example.com", timeout=120)
-        data = result["data"]
-        if isinstance(data, dict) and data.get("success") is False:
-            print("API reported failure:", data.get("message"))
-            return
-        print(data)
-    except AuthenticationError as exc:
-        print("Check your MrScraper API token:", exc)
-    except APIError as exc:
-        print(f"API error (HTTP {exc.status_code}): {exc}")
-    except NetworkError as exc:
-        print("Request failed:", exc)
-    except (ValueError, TypeError) as exc:
-        print("Check the method arguments:", exc)
+        await MrScraper().scrape_html("https://example.com")
+    except AuthenticationError as error:
+        print("Check authentication:", error)
+    except APIError as error:
+        print(error.status_code, error)
+    except NetworkError as error:
+        print("Request failed:", error)
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-## Reusing an HTTP client
+## Integration features
 
-By default, the SDK creates and closes an `httpx.AsyncClient` for each request. For multiple calls, pass a shared client and close it yourself, for example with an async context manager:
+### Configuration
+
+All methods are coroutines and must be awaited. Examples use `asyncio.run(main())`; inside a notebook with an active event loop, use `await main()` instead. Keyword dictionaries can be unpacked with `**payload`. Optional controls set to `None` are omitted; explicit `False` and `0` are preserved.
+
+### Advanced usage
+
+Reuse an HTTP connection pool by passing `http_client=httpx.AsyncClient(...)`. You manage the supplied client's lifetime; the SDK creates and closes its own client when one is not supplied.
 
 ```python
 import asyncio
-
 import httpx
-
 from mrscraper import MrScraper
-
 
 async def main():
     async with httpx.AsyncClient() as http_client:
         client = MrScraper(http_client=http_client)
-        status = await client.status()
-        markdown = await client.scrape_markdown("https://example.com")
-        print(status["data"])
-        print(markdown["data"])
+        print((await client.status())["data"])
+        print((await client.scrape_markdown("https://example.com"))["data"])
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-The SDK still sets each request's timeout according to the selected service.
+The SDK applies each service's HTTP deadline even when a shared client is supplied.
 
-## HTTP contract and request payloads
+### Troubleshooting
 
-### Endpoints and authentication
-
-These seven services use two API hosts. The Python SDK sends both `Authorization: Bearer YOUR_MRSCRAPER_TOKEN` and `x-api-token: YOUR_MRSCRAPER_TOKEN` headers, along with `Content-Type: application/json` and `accept: application/json`. Credentials are not placed in the query string.
-
-| Service | HTTP method and URL | Service-specific HTTP fields |
-| --- | --- | --- |
-| Status | `GET https://api.app.mrscraper.com/api/v1/subscription-accounts` | No query parameters or body. |
-| HTML | `GET https://api.mrscraper.com` | `html=true`, `markdown=false`, `screenshot=false` |
-| Markdown | `GET https://api.mrscraper.com` | `markdown=true`, `screenshot=false`, `html` from the caller |
-| Screenshot | `GET https://api.mrscraper.com` | `browserRendering=true`, `screenshot=full` or `top`, `html` and `markdown` from the caller |
-| Brand | `GET https://api.mrscraper.com` | `action=brand-scraping`, `url`, `bundle=none` |
-| JSON extraction | `GET https://api.mrscraper.com`, or POST for long encoded URLs | `agent=general`, `url`, `prompt`, `html`, `screenshot` |
-| Web search | `GET https://api.mrscraper.com` | `action=websearch`, `query`, `country`, `numResults` |
-
-### GET query payloads
-
-The following JSON objects describe query parameters for readability. They are not JSON request bodies: the SDK URL-encodes these fields into the GET URL and serializes booleans as lowercase `true` or `false`.
-
-For `await client.scrape_html("https://example.com")`, the default HTTP query payload is:
-
-```json
-{
-  "url": "https://example.com",
-  "super": false,
-  "waitUntil": "domcontentloaded",
-  "timeout": 300,
-  "geoCode": "us",
-  "proxyCountry": "us",
-  "saveResult": false,
-  "blockResources": false,
-  "returnCookie": false,
-  "browserRendering": false,
-  "html": true,
-  "markdown": false,
-  "screenshot": false
-}
-```
-
-The meanings and Python names of the page controls are listed in [Shared page parameters](#shared-page-parameters). The output flags `html`, `markdown`, and `screenshot` select which page outputs the service returns. `proxy`, `maxRetries`, and `waitForSelector` are absent here because their Python defaults are `None`.
-
-For `await client.scrape_brand("https://example.com")`, the entire query payload is:
-
-```json
-{
-  "action": "brand-scraping",
-  "url": "https://example.com",
-  "bundle": "none"
-}
-```
-
-For `await client.web_search("site:example.com properties", num_results=20)`, the entire query payload is:
-
-```json
-{
-  "action": "websearch",
-  "query": "site:example.com properties",
-  "country": "us",
-  "numResults": 20
-}
-```
-
-`action` selects the API service, `query` is the search text, `country` selects the search country, and `numResults` requests the result count. The fixed 120-second HTTP timeout is not included in this payload.
-
-For a direct HTTP request equivalent to the basic HTML output selection:
-
-```bash
-curl --get 'https://api.mrscraper.com' \
-  --header "Authorization: Bearer $MRSCRAPER_API_TOKEN" \
-  --header "x-api-token: $MRSCRAPER_API_TOKEN" \
-  --data-urlencode 'url=https://example.com' \
-  --data-urlencode 'html=true' \
-  --data-urlencode 'markdown=false' \
-  --data-urlencode 'screenshot=false'
-```
-
-This curl command shows the output selection; the full SDK defaults are listed in the query payload above. See the [REST API reference](docs/api-reference.md) for an additional HTTP-oriented reference.
-
-### JSON extraction GET-to-POST fallback
-
-`scrape_json` normally sends `url`, `prompt`, `agent=general`, and its page/output controls as GET query parameters. When the complete encoded URL exceeds 8,000 characters, the SDK switches to POST automatically. Only these three fields move into the JSON request body:
-
-```json
-{
-  "url": "https://example.com",
-  "prompt": "Extract property listings including title, price, location, and URL.",
-  "agent": "general"
-}
-```
-
-`url` identifies the page, `prompt` contains extraction instructions, and `agent` selects the general extraction agent. Other options, such as `timeout`, `browserRendering`, `html`, and `screenshot`, stay in the query string. There is no SDK argument to select the HTTP method manually.
-
-### Timeout summary
-
-| Service | Default | How it is applied |
-| --- | --- | --- |
-| Status | 600 seconds | Fixed local HTTP timeout; no service arguments. |
-| HTML, Markdown, screenshot, JSON extraction | 300 seconds | Page timeout sent to the API; local HTTP timeout is `timeout + 30` seconds. |
-| Brand | 120 seconds | Fixed local HTTP timeout. |
-| Web search | 120 seconds | Fixed local HTTP timeout; no `timeout` argument. |
-
-## Manual testing
-
-The repository includes `file.py` to call each service and save the result. It imports this checkout's `src/mrscraper` code, so it tests the local SDK. These commands make live requests and consume quota.
-
-```bash
-python3 -m pip install -e .
-export MRSCRAPER_API_TOKEN='YOUR_MRSCRAPER_TOKEN'
-
-# Run all seven services in order, using the same URL for the page services.
-python3 file.py all --url https://example.com --query 'site:example.com properties'
-
-# Or run each service separately.
-python3 file.py status
-python3 file.py scrape-html --url https://example.com --args '{"browser_rendering":true}'
-python3 file.py scrape-markdown --url https://example.com --args '{"html":true}'
-python3 file.py get-screenshot --url https://example.com --args '{"screenshot":"full","html":true,"markdown":true}'
-python3 file.py scrape-brand --url https://example.com
-python3 file.py scrape-json --url https://example.com --args '{"prompt":"Extract property listings including title, price, location, and URL.","browser_rendering":true}'
-python3 file.py web-search --query 'site:example.com properties' --args '{"country":"us","num_results":10}'
-```
-
-| Runner argument | Default | Meaning |
-| --- | --- | --- |
-| Positional service name | `all` | One of the seven hyphenated service names above, or `all` to run them sequentially. Underscores are also accepted. |
-| `--url` | `https://example.com` | Target URL for HTML, Markdown, screenshot, brand, and JSON extraction. |
-| `--query` | `python web scraping` | Search query used by `web-search`. |
-| `--args` | `{}` | JSON object of extra method arguments using Python names. Use `--url` and `--query` for their respective values. Nonempty `--args` requires selecting a single service. |
-| `--save-dir` | `manual_results` | Parent directory for saved response files. |
-
-Each run creates a timestamped directory with service response JSON files and `summary.json`, and prints a PASS/FAIL summary. A PNG is also saved when the response contains a top-level base64 `screenshot` field inside `result["data"]`. `test_pypi.py` is an alias for this local checkout runner.
+Check token precedence when authentication fails. Use snake_case argument names rather than HTTP camelCase names. Page timeouts must be integers from 1 to 300; search does not accept a timeout argument. Inspect the raw API body before selecting nested fields.
 
 ## Migration
 
-Replace `client.account()` with `client.status()`. Status now preserves the
-raw API response body. Status and web search use fixed HTTP deadlines of
-600 and 120 seconds respectively; remove their old `timeout` arguments.
+Replace `client.account()` with `client.status()` and read the raw API body. Remove status/search timeout arguments. Replace `scraper_api` with `scrape_html`, `scrape_markdown`, or `get_screenshot`. Replace `full_page` with `screenshot="full"` or `"top"`. Search uses `query`, `country`, and `num_results`. Legacy job, sitemap, rerun, result, and bundle-download methods are outside this interface.
 
-Version 0.10.0 replaces the combined `scraper_api` method with separate services:
+## Development and testing
 
-| Previous usage | Current usage |
-| --- | --- |
-| `client.account()` | `client.status()` (raw API body) |
-| `client.scraper_api(url)` for HTML | `client.scrape_html(url)` |
-| `client.scraper_api(url, html=False, markdown=True)` | `client.scrape_markdown(url)` |
-| `client.scraper_api(url, screenshot=True)` | `client.get_screenshot(url)` |
-| `full_page=True` / `full_page=False` for screenshots | `screenshot="full"` / `screenshot="top"` |
+### Automated checks
 
-For combined outputs, use `scrape_markdown(url, html=True)` or `get_screenshot(url, html=True, markdown=True)`. Public `scrape_brand` and `scrape_json` methods are also available.
-
-Page defaults now match the CLI: a 300-second timeout, US geolocation and proxy country, rendering off unless required by the selected service, and no explicit retry limit. Search takes `query`, `country`, and `num_results`; previous URL/locale/raw/format search options are removed. Legacy scraper job, sitemap, rerun, result, and bundle-download methods are outside this seven-service API. LangChain tool names follow `mrscraper_<service>`.
-
-## Development and publishing
-
-From the repository root, install development tools and run the offline suite:
+The automated suite checks service behavior without production API calls.
 
 ```bash
-python3 -m pip install -e . pytest pytest-asyncio respx build twine
-python3 -m pytest -m "not integration" -q
+python -m pip install -e . pytest pytest-asyncio httpx ruff mypy
+python -m pytest -m 'not integration' -q
+ruff check src tests
+mypy src
 ```
 
-To opt into live integration tests, set a MrScraper token and run:
+### Manual checks
+
+The following commands call the live API using your credentials and consume quota.
 
 ```bash
-MRSCRAPER_RUN_LIVE=1 python3 -m pytest -m integration -q
+python file.py status
+python file.py scrape-html --url https://example.com
+python file.py web-search --query "site:example.com documentation"
 ```
-
-Version 0.10.0 is configured in `pyproject.toml` and `src/mrscraper/__init__.py`. Build and validate that release:
-
-```bash
-python3 -m build --outdir dist/release-0.10.0
-python3 -m twine check dist/release-0.10.0/*
-```
-
-Publish the wheel and source distribution with:
-
-```bash
-python3 -m twine upload --username __token__ \
-  dist/release-0.10.0/mrscraper_sdk-0.10.0-py3-none-any.whl \
-  dist/release-0.10.0/mrscraper_sdk-0.10.0.tar.gz
-```
-
-Use your **PyPI API token** when prompted for the upload credential. The MrScraper API token is for calling services; the PyPI token is for publishing this package. For a subsequent release, update both version fields and the artifact paths. Publish this Python SDK before LangChain 0.6.0, which depends on it.
 
 ## License
 
-MIT © MrScraper
+MIT. See [LICENSE](./LICENSE).

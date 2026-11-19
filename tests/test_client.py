@@ -78,6 +78,8 @@ async def test_service_contract(recorded, name):
     )
     if name == "scrape_json":
         expected.update(agent="general", prompt="Extract all data as complete as possible.")
+    if name in {"scrape_html", "scrape_markdown"}:
+        expected["warmStart"] = "false"
     assert params == expected
     assert req.extensions["timeout"]["read"] == 330
 

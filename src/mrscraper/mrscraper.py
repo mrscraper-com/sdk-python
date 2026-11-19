@@ -163,11 +163,10 @@ class MrScraper:
         raise APIError(MrScraper._safe_http_error(exc), status_code=status_code) from exc
 
     async def status(self) -> dict[str, Any]:
-        """Return the raw account API response in the standard response envelope.
+        """Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.
 
-        Calls ``GET /subscription-accounts`` with the CLI's fixed 600-second
-        HTTP deadline. The response body is preserved without summarizing,
-        redacting, or adding calculated fields.
+        Returns:
+            A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
         result = await self._request("GET", _ACCOUNT_URL, timeout=600)
@@ -252,6 +251,7 @@ class MrScraper:
             "block_resources",
             "return_cookie",
             "browser_rendering",
+            "warm_start",
             "html",
             "markdown",
         ):
@@ -284,11 +284,36 @@ class MrScraper:
         wait_for_selector: str | None = None,
         return_cookie: bool = False,
         browser_rendering: bool = False,
+        warm_start: bool = False,
     ) -> dict[str, Any]:
-        """Retrieve raw HTML with the same defaults as the CLI scrape-html service."""
+        """Retrieve the raw HTML of a page. Browser rendering is optional.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
         params = self._page_params(url, locals())
         params.update(
-            browserRendering=browser_rendering, html=True, markdown=False, screenshot=False
+            browserRendering=browser_rendering,
+            warmStart=warm_start,
+            html=True,
+            markdown=False,
+            screenshot=False,
         )
         return await self._page_request(params)
 
@@ -308,12 +333,38 @@ class MrScraper:
         wait_for_selector: str | None = None,
         return_cookie: bool = False,
         browser_rendering: bool = False,
+        warm_start: bool = False,
         html: bool = False,
     ) -> dict[str, Any]:
-        """Retrieve Markdown; html=True also returns HTML and forces browser rendering."""
+        """Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
+            html: Whether to include the page HTML in the response.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
         params = self._page_params(url, locals())
         params.update(
-            browserRendering=html or browser_rendering, html=html, markdown=True, screenshot=False
+            browserRendering=html or browser_rendering,
+            warmStart=warm_start,
+            html=html,
+            markdown=True,
+            screenshot=False,
         )
         return await self._page_request(params)
 
@@ -336,7 +387,28 @@ class MrScraper:
         html: bool = True,
         markdown: bool = False,
     ) -> dict[str, Any]:
-        """Capture a base64 screenshot of the full page or top viewport; browser rendering is always enabled."""
+        """Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
+            return_cookie: Whether to include browser session cookies in the response.
+            screenshot: Screenshot area to capture: full for the entire page or top for the top viewport.
+            html: Whether to include the page HTML in the response.
+            markdown: Whether to include the page Markdown in the response.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
         if screenshot not in ("full", "top"):
             raise ValueError("screenshot must be full or top")
         params = self._page_params(url, locals())
@@ -360,10 +432,25 @@ class MrScraper:
         html: bool = False,
         screenshot: bool = False,
     ) -> dict[str, Any]:
-        """Extract JSON with agent=general; prompts over the 8 KB URL limit use POST.
+        """Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
 
-        Append 'Json Schema:' and a schema to the prompt to shape the result.
-        Loading and cookie options are intentionally unavailable for this service.
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
+            super: Whether to route the request through real devices.
+            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
+            proxy: Custom proxy URL used to load the page.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            save_result: Whether to save the result to the dashboard Result tab.
+            prompt: Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output.
+            browser_rendering: Whether to render the page in a browser before returning the result.
+            html: Whether to include the page HTML in the response.
+            screenshot: Whether to include a base64 screenshot in the response.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
         self._text("prompt", prompt)
@@ -386,7 +473,14 @@ class MrScraper:
         )
 
     async def scrape_brand(self, url: str) -> dict[str, Any]:
-        """Extract a website's brand as JSON with bundle=none (120-second deadline)."""
+        """Extract a website's colors, typography, logos, and social links as JSON.
+
+        Args:
+            url: Absolute HTTP or HTTPS URL of the page to process.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
         self._validate_token()
         return await self._request(
             "GET",
@@ -407,7 +501,16 @@ class MrScraper:
         country: str = "us",
         num_results: int = 10,
     ) -> dict[str, Any]:
-        """Search the web for ranked titles, URLs, descriptions, and sources."""
+        """Search the web and return ranked results with titles, URLs, descriptions, and sources.
+
+        Args:
+            query: Search query text, trimmed before sending, containing 1 to 1000 characters.
+            country: Two-letter country code to search from, sent in lowercase.
+            num_results: Number of search results to request, as an integer from 10 to 100. Fewer results may be returned.
+
+        Returns:
+            A response envelope containing status_code, data, and headers.
+        """
         self._validate_token()
         query = self._text("query", query)
         if len(query) > 1000:
