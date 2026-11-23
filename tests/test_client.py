@@ -44,95 +44,143 @@ async def test_service_contract(recorded, name):
         return
     assert req.url.host == "api.mrscraper.com"
     if name == "scrape_brand":
-        assert params == {"action": "brand-scraping", "url": URL, "bundle": "none"}
-        assert req.extensions["timeout"]["read"] == 120
+        expected_brand = {
+            "action": "brand-scraping",
+            "url": URL,
+            "bundle": "none",
+            "timeout": "300",
+            "warmStart": "false",
+        }
+        assert params == expected_brand
+        assert list(params) == list(expected_brand)
+        assert req.extensions["timeout"]["read"] == 330
         return
     if name == "web_search":
         assert req.extensions["timeout"]["read"] == 120
-        assert params == {
-            "action": "websearch",
-            "query": "web scraping",
-            "country": "us",
-            "numResults": "10",
-        }
+        assert params == {"action": "websearch", "query": "web scraping", "numResults": "10"}
         return
+    # Documented request order: timeout, warmStart, blockResources, then saving and caching.
+    loading = {"timeout": "300", "warmStart": "false", "blockResources": "false"}
+    saving = {"saveResult": "true", "maxAge": "0"}
     expected = {
-        "url": URL,
-        "timeout": "300",
-        "geoCode": "us",
-        "proxyCountry": "us",
-        "super": "false",
-        "waitUntil": "domcontentloaded",
-        "saveResult": "false",
-    }
-    if name != "scrape_json":
-        expected.update(
-            blockResources="false",
-            returnCookie="false",
-            markdown="true" if name == "scrape_markdown" else "false",
-        )
-    expected.update(
-        browserRendering="true" if name == "get_screenshot" else "false",
-        html="true" if name in {"scrape_html", "get_screenshot"} else "false",
-        screenshot="full" if name == "get_screenshot" else "false",
-    )
-    if name == "scrape_json":
-        expected.update(agent="general", prompt="Extract all data as complete as possible.")
-    if name in {"scrape_html", "scrape_markdown"}:
-        expected["warmStart"] = "false"
+        "scrape_html": {"url": URL, "html": "true", **loading, **saving, "screenshot": "false"},
+        "scrape_markdown": {"url": URL, "markdown": "true", **loading, **saving},
+        "get_screenshot": {
+            "url": URL,
+            "screenshot": "full",
+            "browserRendering": "true",
+            "timeout": "300",
+            **saving,
+        },
+        "scrape_json": {
+            "url": URL,
+            "prompt": "Extract all data as complete as possible.",
+            "agent": "general",
+            "html": "true",
+            **loading,
+            **saving,
+            "screenshot": "false",
+        },
+    }[name]
     assert params == expected
+    assert list(params) == list(expected)
     assert req.extensions["timeout"]["read"] == 330
 
 
-async def test_loading_and_false_zero_options(recorded):
+async def test_page_options_map_to_documented_fields_in_order(recorded):
     client, calls = recorded
+    shared = {
+        "timeout": 330,
+        "wait_for_selector": " .ready ",
+        "geo_code": "ID",
+        "save_result": False,
+        "max_age": 604800000,
+        "token_cap": 25,
+        "max_retries": 0,
+    }
+    loading = {"browser_rendering": False, "warm_start": True, "block_resources": True}
     await client.scrape_html(
-        URL,
-        super=True,
-        geo_code="ID",
-        proxy_country="SG",
-        max_retries=0,
-        save_result=True,
-        proxy="http://example.com",
-        wait_until="networkidle2",
-        wait_for_selector=".ready",
-        return_cookie=True,
-        block_resources=True,
-        browser_rendering=True,
-        timeout=15,
+        URL, **shared, **loading, action=" analytics ", screenshot="1920x1080-75"
     )
-    p = calls[0].url.params
-    for key, value in {
-        "super": "true",
-        "geoCode": "id",
-        "proxyCountry": "sg",
-        "maxRetries": "0",
-        "saveResult": "true",
-        "proxy": "http://example.com",
-        "waitUntil": "networkidle2",
+    await client.scrape_markdown(URL, **shared, **loading, action="analytics")
+    await client.get_screenshot(URL, **shared)
+    await client.scrape_json(
+        URL, "Extract prices", **shared, **loading, html=False, screenshot=True
+    )
+    wire_shared = {
+        "timeout": "330",
         "waitForSelector": ".ready",
-        "returnCookie": "true",
-        "blockResources": "true",
+        "geoCode": "id",
+        "saveResult": "false",
+        "maxAge": "604800000",
+        "tokenCap": "25",
+        "maxRetries": "0",
+    }
+    wire_loading = {"browserRendering": "false", "warmStart": "true", "blockResources": "true"}
+    html, markdown, screenshot, json_request = (dict(call.url.params) for call in calls)
+    assert list(html) == [
+        "url",
+        "html",
+        "browserRendering",
+        "timeout",
+        "warmStart",
+        "blockResources",
+        "waitForSelector",
+        "action",
+        "geoCode",
+        "saveResult",
+        "maxAge",
+        "tokenCap",
+        "maxRetries",
+        "screenshot",
+    ]
+    # A screenshot sends browserRendering=true even when browser_rendering is False.
+    assert html == {
+        "url": URL,
+        "html": "true",
+        **wire_loading,
         "browserRendering": "true",
-        "timeout": "15",
-    }.items():
-        assert p[key] == value
-    assert calls[0].extensions["timeout"]["read"] == 45
+        "action": "analytics",
+        **wire_shared,
+        "screenshot": "1920x1080-75",
+    }
+    assert markdown == {
+        "url": URL,
+        "markdown": "true",
+        **wire_loading,
+        "action": "analytics",
+        **wire_shared,
+    }
+    assert screenshot == {
+        "url": URL,
+        "screenshot": "full",
+        "browserRendering": "true",
+        **wire_shared,
+    }
+    assert json_request == {
+        "url": URL,
+        "prompt": "Extract prices",
+        "agent": "general",
+        "html": "false",
+        **wire_loading,
+        **wire_shared,
+        "screenshot": "true",
+    }
+    assert calls[0].extensions["timeout"]["read"] == 360
 
 
 async def test_json_short_and_long_prompts(recorded):
     client, calls = recorded
     await client.scrape_json(URL, "  Extract titles  ", max_retries=0)
-    await client.scrape_json(URL, "é &" * 4000, max_retries=0, save_result=True)
+    await client.scrape_json(URL, "é &" * 4000, max_retries=0, save_result=False)
     assert calls[0].url.params["prompt"] == "  Extract titles  "
     req = calls[1]
     assert req.method == "POST"
     assert json.loads(req.content) == {"url": URL, "prompt": "é &" * 4000, "agent": "general"}
-    assert not {"url", "prompt", "agent", "blockResources", "returnCookie"}.intersection(
-        req.url.params
-    )
+    assert not {"url", "prompt", "agent"}.intersection(req.url.params)
     assert req.url.params["maxRetries"] == "0"
-    assert req.url.params["saveResult"] == "true"
+    assert req.url.params["saveResult"] == "false"
+    assert req.url.params["html"] == "true"
     assert "token" not in str(req.url)
 
 
