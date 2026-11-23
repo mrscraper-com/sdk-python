@@ -44,11 +44,11 @@ async def test_service_contract(recorded, name):
         return
     assert req.url.host == "api.mrscraper.com"
     if name == "scrape_brand":
+        # timeout is sent only when set; the deadline uses 300 seconds when it is omitted.
         expected_brand = {
             "action": "brand-scraping",
             "url": URL,
             "bundle": "none",
-            "timeout": "300",
             "warmStart": "false",
         }
         assert params == expected_brand
@@ -63,11 +63,27 @@ async def test_service_contract(recorded, name):
     loading = {"timeout": "300", "warmStart": "false", "blockResources": "false"}
     saving = {"saveResult": "true", "maxAge": "0"}
     expected = {
-        "scrape_html": {"url": URL, "html": "true", **loading, **saving, "screenshot": "false"},
-        "scrape_markdown": {"url": URL, "markdown": "true", **loading, **saving},
+        "scrape_html": {
+            "url": URL,
+            "html": "true",
+            "markdown": "false",
+            **loading,
+            **saving,
+            "screenshot": "false",
+        },
+        "scrape_markdown": {
+            "url": URL,
+            "markdown": "true",
+            "html": "false",
+            "screenshot": "false",
+            **loading,
+            **saving,
+        },
         "get_screenshot": {
             "url": URL,
             "screenshot": "full",
+            "html": "false",
+            "markdown": "false",
             "browserRendering": "true",
             "timeout": "300",
             **saving,
@@ -93,9 +109,7 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "timeout": 330,
         "wait_for_selector": " .ready ",
         "geo_code": "ID",
-        "save_result": False,
         "max_age": 604800000,
-        "token_cap": 25,
         "max_retries": 0,
     }
     loading = {"browser_rendering": False, "warm_start": True, "block_resources": True}
@@ -107,13 +121,13 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
     await client.scrape_json(
         URL, "Extract prices", **shared, **loading, html=False, screenshot=True
     )
+    # saveResult is always true and tokenCap is never sent.
     wire_shared = {
         "timeout": "330",
         "waitForSelector": ".ready",
         "geoCode": "id",
-        "saveResult": "false",
+        "saveResult": "true",
         "maxAge": "604800000",
-        "tokenCap": "25",
         "maxRetries": "0",
     }
     wire_loading = {"browserRendering": "false", "warmStart": "true", "blockResources": "true"}
@@ -121,6 +135,7 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
     assert list(html) == [
         "url",
         "html",
+        "markdown",
         "browserRendering",
         "timeout",
         "warmStart",
@@ -130,7 +145,6 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "geoCode",
         "saveResult",
         "maxAge",
-        "tokenCap",
         "maxRetries",
         "screenshot",
     ]
@@ -138,6 +152,7 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
     assert html == {
         "url": URL,
         "html": "true",
+        "markdown": "false",
         **wire_loading,
         "browserRendering": "true",
         "action": "analytics",
@@ -147,13 +162,18 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
     assert markdown == {
         "url": URL,
         "markdown": "true",
+        "html": "false",
+        "screenshot": "false",
         **wire_loading,
         "action": "analytics",
         **wire_shared,
     }
+    assert list(screenshot)[:5] == ["url", "screenshot", "html", "markdown", "browserRendering"]
     assert screenshot == {
         "url": URL,
         "screenshot": "full",
+        "html": "false",
+        "markdown": "false",
         "browserRendering": "true",
         **wire_shared,
     }
@@ -172,14 +192,14 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
 async def test_json_short_and_long_prompts(recorded):
     client, calls = recorded
     await client.scrape_json(URL, "  Extract titles  ", max_retries=0)
-    await client.scrape_json(URL, "é &" * 4000, max_retries=0, save_result=False)
+    await client.scrape_json(URL, "é &" * 4000, max_retries=0)
     assert calls[0].url.params["prompt"] == "  Extract titles  "
     req = calls[1]
     assert req.method == "POST"
     assert json.loads(req.content) == {"url": URL, "prompt": "é &" * 4000, "agent": "general"}
     assert not {"url", "prompt", "agent"}.intersection(req.url.params)
     assert req.url.params["maxRetries"] == "0"
-    assert req.url.params["saveResult"] == "false"
+    assert req.url.params["saveResult"] == "true"
     assert req.url.params["html"] == "true"
     assert "token" not in str(req.url)
 

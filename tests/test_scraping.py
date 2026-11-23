@@ -35,7 +35,12 @@ async def test_scrape_html_screenshot_sends_browser_rendering(
     client, calls = recorded
     await client.scrape_html(URL, screenshot=screenshot, browser_rendering=browser_rendering)
     params = list(calls[0].url.params.multi_items())
-    assert params[:3] == [("url", URL), ("html", "true"), ("browserRendering", "true")]
+    assert params[:4] == [
+        ("url", URL),
+        ("html", "true"),
+        ("markdown", "false"),
+        ("browserRendering", "true"),
+    ]
     assert dict(params)["screenshot"] == screenshot
 
 
@@ -104,16 +109,12 @@ async def test_scrape_html_rejects_other_screenshots(recorded, screenshot):
         {"max_age": 604800001},
         {"max_age": 1.5},
         {"max_age": None},
-        {"token_cap": 0},
-        {"token_cap": True},
         {"max_retries": -1},
         {"max_retries": 1.5},
         {"geo_code": "usa"},
         {"geo_code": "1a"},
         {"wait_for_selector": " "},
         {"wait_for_selector": "a" * 501},
-        {"save_result": "false"},
-        {"save_result": None},
         {"url": "file:///tmp/test"},
     ],
 )
@@ -195,7 +196,15 @@ async def test_unicode_query_boundary(recorded):
     [
         (method, option)
         for method in PAGE_METHODS
-        for option in ("super", "wait_until", "proxy_country", "proxy", "return_cookie")
+        for option in (
+            "super",
+            "wait_until",
+            "proxy_country",
+            "proxy",
+            "return_cookie",
+            "save_result",
+            "token_cap",
+        )
     ]
     + [
         ("scrape_markdown", "html"),
@@ -215,6 +224,21 @@ async def test_undocumented_controls_are_not_accepted(recorded, method, option):
     with pytest.raises(TypeError):
         await getattr(client, method)(URL, **{option: "value"})
     assert calls == []
+
+
+async def test_brand_defaults_omit_timeout_and_geo_code(recorded):
+    client, calls = recorded
+    await client.scrape_brand(URL)
+    await client.scrape_brand(URL, timeout=None, geo_code=None)
+    for call in calls:
+        assert list(call.url.params.multi_items()) == [
+            ("action", "brand-scraping"),
+            ("url", URL),
+            ("bundle", "none"),
+            ("warmStart", "false"),
+        ]
+        # Without a timeout the deadline uses the 300-second page default.
+        assert call.extensions["timeout"]["read"] == 330
 
 
 async def test_brand_options_map_to_documented_fields(recorded):
@@ -239,7 +263,6 @@ async def test_brand_options_map_to_documented_fields(recorded):
         {"timeout": 331},
         {"timeout": True},
         {"timeout": 1.5},
-        {"timeout": None},
         {"warm_start": "true"},
         {"warm_start": 1},
         {"warm_start": None},

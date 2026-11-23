@@ -18,6 +18,7 @@ DEFAULT_JSON_PROMPT = "Extract all data as complete as possible."
 #: Scrape HTML screenshot: False for none, "full", "top", or "WIDTHxHEIGHT[-ZOOM]".
 ScreenshotCapture = Union[Literal[False], str]
 
+_DEFAULT_TIMEOUT = 300
 _MAX_TIMEOUT = 330
 _MAX_SELECTOR_LENGTH = 500
 # Seven days, the oldest cached result the Scraper API serves.
@@ -300,9 +301,9 @@ class MrScraper:
         if action:
             fields["action"] = cls._optional_text("action", values["action"])
         fields["geoCode"] = cls._optional_country("geo_code", values["geo_code"])
-        fields["saveResult"] = cls._boolean("save_result", values["save_result"])
+        # Results are always saved to the dashboard; saveResult is not an option.
+        fields["saveResult"] = True
         fields["maxAge"] = cls._integer("max_age", values["max_age"], 0, _MAX_CACHE_AGE_MS)
-        fields["tokenCap"] = cls._optional_integer("token_cap", values["token_cap"], 1)
         fields["maxRetries"] = cls._optional_integer("max_retries", values["max_retries"], 0)
         return fields
 
@@ -329,9 +330,7 @@ class MrScraper:
         wait_for_selector: str | None = None,
         action: str | None = None,
         geo_code: str | None = None,
-        save_result: bool = True,
         max_age: int = 0,
-        token_cap: int | None = None,
         max_retries: int | None = None,
         screenshot: ScreenshotCapture = False,
     ) -> dict[str, Any]:
@@ -346,9 +345,7 @@ class MrScraper:
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             action: Scraper action that routes the request or simply flags it, useful for separating analytics per domain.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
-            save_result: Whether to save the result to the dashboard Result tab.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
-            token_cap: Maximum total tokens the scrape and its retries can use, as a positive integer. Omit this parameter for no limit.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
             screenshot: Screenshot to capture with the HTML: false for none, full for the entire page, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. Setting a screenshot also sends browserRendering=true.
 
@@ -361,7 +358,7 @@ class MrScraper:
         if capture is not False:
             # A screenshot needs a rendered page, so it always sends browserRendering=true.
             fields["browserRendering"] = True
-        params = {"url": page, "html": True, **fields, "screenshot": capture}
+        params = {"url": page, "html": True, "markdown": False, **fields, "screenshot": capture}
         return await self._page_request(params)
 
     async def scrape_markdown(
@@ -375,9 +372,7 @@ class MrScraper:
         wait_for_selector: str | None = None,
         action: str | None = None,
         geo_code: str | None = None,
-        save_result: bool = True,
         max_age: int = 0,
-        token_cap: int | None = None,
         max_retries: int | None = None,
     ) -> dict[str, Any]:
         """Retrieve a page as clean Markdown. Browser rendering is optional.
@@ -391,9 +386,7 @@ class MrScraper:
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             action: Scraper action that routes the request or simply flags it, useful for separating analytics per domain.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
-            save_result: Whether to save the result to the dashboard Result tab.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
-            token_cap: Maximum total tokens the scrape and its retries can use, as a positive integer. Omit this parameter for no limit.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
 
         Returns:
@@ -402,6 +395,8 @@ class MrScraper:
         params = {
             "url": self._url(url),
             "markdown": True,
+            "html": False,
+            "screenshot": False,
             **self._page_fields(locals(), loading=True, action=True),
         }
         return await self._page_request(params)
@@ -413,9 +408,7 @@ class MrScraper:
         timeout: int = 300,
         wait_for_selector: str | None = None,
         geo_code: str | None = None,
-        save_result: bool = True,
         max_age: int = 0,
-        token_cap: int | None = None,
         max_retries: int | None = None,
     ) -> dict[str, Any]:
         """Capture a base64 PNG screenshot of the full page. Browser rendering is always enabled.
@@ -425,9 +418,7 @@ class MrScraper:
             timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
-            save_result: Whether to save the result to the dashboard Result tab.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
-            token_cap: Maximum total tokens the scrape and its retries can use, as a positive integer. Omit this parameter for no limit.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
 
         Returns:
@@ -436,6 +427,8 @@ class MrScraper:
         params = {
             "url": self._url(url),
             "screenshot": "full",
+            "html": False,
+            "markdown": False,
             "browserRendering": True,
             **self._page_fields(locals(), loading=False),
         }
@@ -453,9 +446,7 @@ class MrScraper:
         block_resources: bool = False,
         wait_for_selector: str | None = None,
         geo_code: str | None = None,
-        save_result: bool = True,
         max_age: int = 0,
-        token_cap: int | None = None,
         max_retries: int | None = None,
         screenshot: bool = False,
     ) -> dict[str, Any]:
@@ -471,9 +462,7 @@ class MrScraper:
             block_resources: Whether to block images, fonts, and stylesheets while loading the page.
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
-            save_result: Whether to save the result to the dashboard Result tab.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
-            token_cap: Maximum total tokens the scrape and its retries can use, as a positive integer. Omit this parameter for no limit.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
             screenshot: Whether to include a base64 screenshot in the response.
 
@@ -505,7 +494,7 @@ class MrScraper:
         self,
         url: str,
         *,
-        timeout: int = 300,
+        timeout: int | None = None,
         warm_start: bool = False,
         geo_code: str | None = None,
     ) -> dict[str, Any]:
@@ -526,14 +515,16 @@ class MrScraper:
                 "action": "brand-scraping",
                 "url": self._url(url),
                 "bundle": "none",
-                "timeout": self._integer("timeout", timeout, 1, _MAX_TIMEOUT),
+                # timeout and geoCode are sent only when set.
+                "timeout": None
+                if timeout is None
+                else self._integer("timeout", timeout, 1, _MAX_TIMEOUT),
                 "warmStart": self._boolean("warm_start", warm_start),
                 "geoCode": self._optional_country("geo_code", geo_code),
             }
         )
-        return await self._request(
-            "GET", self._endpoint(params), timeout=params["timeout"] + _TRANSPORT_GRACE_SECONDS
-        )
+        deadline = (_DEFAULT_TIMEOUT if timeout is None else timeout) + _TRANSPORT_GRACE_SECONDS
+        return await self._request("GET", self._endpoint(params), timeout=deadline)
 
     async def web_search(
         self,
