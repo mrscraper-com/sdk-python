@@ -580,10 +580,6 @@ The SDK applies each service's HTTP deadline even when a shared client is suppli
 
 Check token precedence when authentication fails. Use snake_case argument names rather than HTTP camelCase names. Page timeouts must be integers from 1 to 330; search does not accept a timeout argument. Inspect the raw API body before selecting nested fields.
 
-## Migration
-
-Version 0.12.0 matches the Scraper API reference. Removed arguments: `super`, `wait_until`, `proxy_country`, `proxy`, `return_cookie`, `save_result`, `token_cap`, `scrape_markdown(html=...)`, and the `get_screenshot` arguments `html` and `markdown`; `get_screenshot(screenshot=...)` still defaults to `"full"` and now also accepts a `WIDTHxHEIGHT[-ZOOM]` viewport. Results are always saved to the dashboard (`saveResult=true`), and `tokenCap` is never sent. New arguments: `max_age`, `action` for HTML and Markdown, and `scrape_html(screenshot=...)`; `scrape_json` now accepts `warm_start`, `block_resources`, and `wait_for_selector`. Changed defaults: `scrape_json(html=True)`, `browser_rendering=None` (automatic), `geo_code=None` and `country=None` (omitted), and page timeouts up to 330 seconds. Earlier releases replaced `client.account()` with `client.status()` and `scraper_api` with the six scraping and search methods.
-
 ## Development and testing
 
 ### Automated checks
