@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Literal
+import re
+from typing import Any, Literal, Union
 from urllib.parse import urlencode, urlparse
 
 import httpx
@@ -13,8 +14,23 @@ from .exceptions import APIError, AuthenticationError, NetworkError
 _FETCH_BASE_URL = "https://api.mrscraper.com"
 _ACCOUNT_URL = "https://api.app.mrscraper.com/api/v1/subscription-accounts"
 
-WaitUntil = Literal["domcontentloaded", "load", "networkidle0", "networkidle2"]
 DEFAULT_JSON_PROMPT = "Extract all data as complete as possible."
+#: Scrape HTML screenshot: False for none, "full", "top", or "WIDTHxHEIGHT[-ZOOM]".
+ScreenshotCapture = Union[Literal[False], str]
+
+_MAX_TIMEOUT = 330
+_MAX_SELECTOR_LENGTH = 500
+# Seven days, the oldest cached result the Scraper API serves.
+_MAX_CACHE_AGE_MS = 604_800_000
+# The Scraper API refuses request URLs over about 8 KB with 414.
+_MAX_GET_URL_LENGTH = 8000
+_TRANSPORT_GRACE_SECONDS = 30
+_BRAND_AND_SEARCH_TIMEOUT = 120
+_SCREENSHOT_VIEWPORT = re.compile(r"([0-9]{3,4})x([0-9]{3,4})(?:-([0-9]{2,3}))?")
+_SCREENSHOT_AREA_HINT = (
+    "WIDTHxHEIGHT from 100 to 3840 pixels with an optional -ZOOM from 25 to 300, "
+    "such as 1280x800 or 1920x1080-75"
+)
 
 
 class MrScraper:
@@ -190,11 +206,36 @@ class MrScraper:
             raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
         return value
 
+    @classmethod
+    def _optional_integer(cls, name: str, value: int | None, minimum: int) -> int | None:
+        return None if value is None else cls._integer(name, value, minimum)
+
+    @staticmethod
+    def _boolean(name: str, value: bool) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError(f"{name} must be a boolean")
+        return value
+
+    @classmethod
+    def _optional_boolean(cls, name: str, value: bool | None) -> bool | None:
+        return None if value is None else cls._boolean(name, value)
+
     @staticmethod
     def _text(name: str, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{name} must be a non-empty string")
         return value.strip()
+
+    @classmethod
+    def _optional_text(cls, name: str, value: str | None) -> str | None:
+        return None if value is None else cls._text(name, value)
+
+    @classmethod
+    def _selector(cls, value: str | None) -> str | None:
+        selector = cls._optional_text("wait_for_selector", value)
+        if selector is not None and len(selector) > _MAX_SELECTOR_LENGTH:
+            raise ValueError(f"wait_for_selector must be at most {_MAX_SELECTOR_LENGTH} characters")
+        return selector
 
     @staticmethod
     def _url(url: str) -> str:
@@ -219,45 +260,60 @@ class MrScraper:
         return value.lower()
 
     @classmethod
-    def _page_params(cls, url: str, options: dict[str, Any]) -> dict[str, Any]:
-        wait_until = options["wait_until"]
-        if wait_until not in {"domcontentloaded", "load", "networkidle0", "networkidle2"}:
-            raise ValueError(
-                "wait_until must be domcontentloaded, load, networkidle0, or networkidle2"
+    def _optional_country(cls, name: str, value: str | None) -> str | None:
+        return None if value is None else cls._country(name, value)
+
+    @staticmethod
+    def _is_screenshot_area(value: Any) -> bool:
+        """Return whether value is full, top, or a WIDTHxHEIGHT viewport with an optional -ZOOM."""
+        if not isinstance(value, str):
+            return False
+        if value in ("full", "top"):
+            return True
+        match = _SCREENSHOT_VIEWPORT.fullmatch(value)
+        if not match:
+            return False
+        width, height = int(match[1]), int(match[2])
+        zoom = 100 if match[3] is None else int(match[3])
+        return 100 <= width <= 3840 and 100 <= height <= 3840 and 25 <= zoom <= 300
+
+    @classmethod
+    def _screenshot_capture(cls, value: ScreenshotCapture) -> ScreenshotCapture:
+        """Accept False or a screenshot area for Scrape HTML."""
+        if value is False or cls._is_screenshot_area(value):
+            return value
+        raise ValueError(f"screenshot must be False, full, top, or {_SCREENSHOT_AREA_HINT}")
+
+    @classmethod
+    def _screenshot_area(cls, value: str) -> str:
+        """Accept a screenshot area for Get screenshot."""
+        if cls._is_screenshot_area(value):
+            return value
+        raise ValueError(f"screenshot must be full, top, or {_SCREENSHOT_AREA_HINT}")
+
+    @classmethod
+    def _page_fields(cls, values: dict[str, Any], *, loading: bool) -> dict[str, Any]:
+        """Validate the shared page controls in a method's arguments.
+
+        Returns HTTP fields in the documented request order. Optional controls set
+        to ``None`` stay off the wire; explicit ``False`` and ``0`` are preserved.
+        """
+        fields: dict[str, Any] = {}
+        if loading:
+            fields["browserRendering"] = cls._optional_boolean(
+                "browser_rendering", values["browser_rendering"]
             )
-        params = {
-            "url": cls._url(url),
-            "super": options["super"],
-            "waitUntil": wait_until,
-            "timeout": cls._integer("timeout", options["timeout"], 1, 300),
-            "geoCode": cls._country("geo_code", options["geo_code"]),
-            "proxyCountry": cls._country("proxy_country", options["proxy_country"]),
-            "saveResult": options["save_result"],
-        }
-        for local, wire in (("proxy", "proxy"), ("wait_for_selector", "waitForSelector")):
-            if options.get(local) is not None:
-                params[wire] = cls._text(local, options[local])
-        if options["max_retries"] is not None:
-            params["maxRetries"] = cls._integer("max_retries", options["max_retries"], 0)
-        for local, wire in (
-            ("block_resources", "blockResources"),
-            ("return_cookie", "returnCookie"),
-        ):
-            if local in options:
-                params[wire] = options[local]
-        for name in (
-            "super",
-            "save_result",
-            "block_resources",
-            "return_cookie",
-            "browser_rendering",
-            "warm_start",
-            "html",
-            "markdown",
-        ):
-            if name in options and not isinstance(options[name], bool):
-                raise ValueError(f"{name} must be a boolean")
-        return params
+        fields["timeout"] = cls._integer("timeout", values["timeout"], 1, _MAX_TIMEOUT)
+        if loading:
+            fields["warmStart"] = cls._boolean("warm_start", values["warm_start"])
+            fields["blockResources"] = cls._boolean("block_resources", values["block_resources"])
+        fields["waitForSelector"] = cls._selector(values["wait_for_selector"])
+        fields["geoCode"] = cls._optional_country("geo_code", values["geo_code"])
+        # Results are always saved to the dashboard; saveResult is not an option.
+        fields["saveResult"] = True
+        fields["maxAge"] = cls._integer("max_age", values["max_age"], 0, _MAX_CACHE_AGE_MS)
+        fields["maxRetries"] = cls._optional_integer("max_retries", values["max_retries"], 0)
+        return fields
 
     @staticmethod
     def _endpoint(params: dict[str, Any]) -> str:
@@ -266,153 +322,123 @@ class MrScraper:
 
     async def _page_request(self, params: dict[str, Any]) -> dict[str, Any]:
         self._validate_token()
-        return await self._request("GET", self._endpoint(params), timeout=params["timeout"] + 30)
+        params = self._compact(params)
+        return await self._request(
+            "GET", self._endpoint(params), timeout=params["timeout"] + _TRANSPORT_GRACE_SECONDS
+        )
 
     async def scrape_html(
         self,
         url: str,
         *,
+        browser_rendering: bool | None = None,
         timeout: int = 300,
-        geo_code: str = "us",
-        proxy_country: str = "us",
-        super: bool = False,
-        wait_until: WaitUntil = "domcontentloaded",
-        proxy: str | None = None,
-        max_retries: int | None = None,
-        save_result: bool = False,
+        warm_start: bool = False,
         block_resources: bool = False,
         wait_for_selector: str | None = None,
-        return_cookie: bool = False,
-        browser_rendering: bool = False,
-        warm_start: bool = False,
+        geo_code: str | None = None,
+        max_age: int = 0,
+        max_retries: int | None = None,
+        screenshot: ScreenshotCapture = False,
     ) -> dict[str, Any]:
         """Retrieve the raw HTML of a page. Browser rendering is optional.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
-            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
-            geo_code: Two-letter country code to load the page from, sent in lowercase.
-            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
-            super: Whether to route the request through real devices.
-            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
-            proxy: Custom proxy URL used to load the page.
-            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
-            save_result: Whether to save the result to the dashboard Result tab.
+            browser_rendering: Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked.
+            timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
+            warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
             block_resources: Whether to block images, fonts, and stylesheets while loading the page.
-            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
-            return_cookie: Whether to include browser session cookies in the response.
-            browser_rendering: Whether to render the page in a browser before returning the result.
-            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
+            wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
+            screenshot: Screenshot to capture with the HTML: false for none, full for the entire page, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. Setting a screenshot also sends browserRendering=true.
 
         Returns:
             A response envelope containing status_code, data, and headers.
         """
-        params = self._page_params(url, locals())
-        params.update(
-            browserRendering=browser_rendering,
-            warmStart=warm_start,
-            html=True,
-            markdown=False,
-            screenshot=False,
-        )
+        page = self._url(url)
+        fields = self._page_fields(locals(), loading=True)
+        capture = self._screenshot_capture(screenshot)
+        if capture is not False:
+            # A screenshot needs a rendered page, so it always sends browserRendering=true.
+            fields["browserRendering"] = True
+        params = {"url": page, "html": True, "markdown": False, **fields, "screenshot": capture}
         return await self._page_request(params)
 
     async def scrape_markdown(
         self,
         url: str,
         *,
+        browser_rendering: bool | None = None,
         timeout: int = 300,
-        geo_code: str = "us",
-        proxy_country: str = "us",
-        super: bool = False,
-        wait_until: WaitUntil = "domcontentloaded",
-        proxy: str | None = None,
-        max_retries: int | None = None,
-        save_result: bool = False,
+        warm_start: bool = False,
         block_resources: bool = False,
         wait_for_selector: str | None = None,
-        return_cookie: bool = False,
-        browser_rendering: bool = False,
-        warm_start: bool = False,
-        html: bool = False,
+        geo_code: str | None = None,
+        max_age: int = 0,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
-        """Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
+        """Retrieve a page as clean Markdown. Browser rendering is optional.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
-            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
-            geo_code: Two-letter country code to load the page from, sent in lowercase.
-            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
-            super: Whether to route the request through real devices.
-            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
-            proxy: Custom proxy URL used to load the page.
-            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
-            save_result: Whether to save the result to the dashboard Result tab.
+            browser_rendering: Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked.
+            timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
+            warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
             block_resources: Whether to block images, fonts, and stylesheets while loading the page.
-            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
-            return_cookie: Whether to include browser session cookies in the response.
-            browser_rendering: Whether to render the page in a browser before returning the result.
-            warm_start: Whether to enable warm start for more reliable scraping, at the cost of additional latency.
-            html: Whether to include the page HTML in the response.
+            wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
 
         Returns:
             A response envelope containing status_code, data, and headers.
         """
-        params = self._page_params(url, locals())
-        params.update(
-            browserRendering=html or browser_rendering,
-            warmStart=warm_start,
-            html=html,
-            markdown=True,
-            screenshot=False,
-        )
+        params = {
+            "url": self._url(url),
+            "markdown": True,
+            "html": False,
+            "screenshot": False,
+            **self._page_fields(locals(), loading=True),
+        }
         return await self._page_request(params)
 
     async def get_screenshot(
         self,
         url: str,
         *,
+        screenshot: str = "full",
         timeout: int = 300,
-        geo_code: str = "us",
-        proxy_country: str = "us",
-        super: bool = False,
-        wait_until: WaitUntil = "domcontentloaded",
-        proxy: str | None = None,
-        max_retries: int | None = None,
-        save_result: bool = False,
-        block_resources: bool = False,
         wait_for_selector: str | None = None,
-        return_cookie: bool = False,
-        screenshot: Literal["full", "top"] = "full",
-        html: bool = True,
-        markdown: bool = False,
+        geo_code: str | None = None,
+        max_age: int = 0,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
-        """Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+        """Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
-            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
+            screenshot: Screenshot area to capture: full for the entire scroll height, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75.
+            timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
+            wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
-            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
-            super: Whether to route the request through real devices.
-            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
-            proxy: Custom proxy URL used to load the page.
+            max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
-            save_result: Whether to save the result to the dashboard Result tab.
-            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
-            wait_for_selector: Wait for the page to contain the specified CSS selector before returning the result.
-            return_cookie: Whether to include browser session cookies in the response.
-            screenshot: Screenshot area to capture: full for the entire page or top for the top viewport.
-            html: Whether to include the page HTML in the response.
-            markdown: Whether to include the page Markdown in the response.
 
         Returns:
             A response envelope containing status_code, data, and headers.
         """
-        if screenshot not in ("full", "top"):
-            raise ValueError("screenshot must be full or top")
-        params = self._page_params(url, locals())
-        params.update(browserRendering=True, screenshot=screenshot, html=html, markdown=markdown)
+        area = self._screenshot_area(screenshot)
+        params = {
+            "url": self._url(url),
+            "screenshot": area,
+            "html": False,
+            "markdown": False,
+            "browserRendering": True,
+            **self._page_fields(locals(), loading=False),
+        }
         return await self._page_request(params)
 
     async def scrape_json(
@@ -420,33 +446,31 @@ class MrScraper:
         url: str,
         prompt: str = DEFAULT_JSON_PROMPT,
         *,
+        html: bool = True,
+        browser_rendering: bool | None = None,
         timeout: int = 300,
-        geo_code: str = "us",
-        proxy_country: str = "us",
-        super: bool = False,
-        wait_until: WaitUntil = "domcontentloaded",
-        proxy: str | None = None,
+        warm_start: bool = False,
+        block_resources: bool = False,
+        wait_for_selector: str | None = None,
+        geo_code: str | None = None,
+        max_age: int = 0,
         max_retries: int | None = None,
-        save_result: bool = False,
-        browser_rendering: bool = False,
-        html: bool = False,
         screenshot: bool = False,
     ) -> dict[str, Any]:
         """Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
-            timeout: Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.
-            geo_code: Two-letter country code to load the page from, sent in lowercase.
-            proxy_country: Two-letter country code of the proxy server, sent in lowercase.
-            super: Whether to route the request through real devices.
-            wait_until: Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.
-            proxy: Custom proxy URL used to load the page.
-            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
-            save_result: Whether to save the result to the dashboard Result tab.
             prompt: Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output.
-            browser_rendering: Whether to render the page in a browser before returning the result.
             html: Whether to include the page HTML in the response.
+            browser_rendering: Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked.
+            timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
+            warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
+            block_resources: Whether to block images, fonts, and stylesheets while loading the page.
+            wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
+            geo_code: Two-letter country code to load the page from, sent in lowercase.
+            max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
+            max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
             screenshot: Whether to include a base64 screenshot in the response.
 
         Returns:
@@ -454,22 +478,23 @@ class MrScraper:
         """
         self._validate_token()
         self._text("prompt", prompt)
-        if not isinstance(screenshot, bool):
-            raise ValueError("screenshot must be a boolean")
-        params = self._page_params(url, locals())
-        params.update(
-            browserRendering=browser_rendering,
-            html=html,
-            screenshot=screenshot,
-            agent="general",
-            prompt=prompt,
+        params = self._compact(
+            {
+                "url": self._url(url),
+                "prompt": prompt,
+                "agent": "general",
+                "html": self._boolean("html", html),
+                **self._page_fields(locals(), loading=True),
+                "screenshot": self._boolean("screenshot", screenshot),
+            }
         )
+        transport_timeout = params["timeout"] + _TRANSPORT_GRACE_SECONDS
         endpoint = self._endpoint(params)
-        if len(endpoint) <= 8000:
-            return await self._request("GET", endpoint, timeout=timeout + 30)
+        if len(endpoint) <= _MAX_GET_URL_LENGTH:
+            return await self._request("GET", endpoint, timeout=transport_timeout)
         body = {key: params.pop(key) for key in ("url", "prompt", "agent")}
         return await self._request(
-            "POST", self._endpoint(params), payload=body, timeout=timeout + 30
+            "POST", self._endpoint(params), payload=body, timeout=transport_timeout
         )
 
     async def scrape_brand(self, url: str) -> dict[str, Any]:
@@ -491,14 +516,14 @@ class MrScraper:
                     "bundle": "none",
                 }
             ),
-            timeout=120,
+            timeout=_BRAND_AND_SEARCH_TIMEOUT,
         )
 
     async def web_search(
         self,
         query: str,
         *,
-        country: str = "us",
+        country: str | None = None,
         num_results: int = 10,
     ) -> dict[str, Any]:
         """Search the web and return ranked results with titles, URLs, descriptions, and sources.
@@ -515,15 +540,12 @@ class MrScraper:
         query = self._text("query", query)
         if len(query) > 1000:
             raise ValueError("query must be 1 to 1000 characters")
-        return await self._request(
-            "GET",
-            self._endpoint(
-                {
-                    "action": "websearch",
-                    "query": query,
-                    "country": self._country("country", country),
-                    "numResults": self._integer("num_results", num_results, 10, 100),
-                }
-            ),
-            timeout=120,
+        params = self._compact(
+            {
+                "action": "websearch",
+                "query": query,
+                "country": self._optional_country("country", country),
+                "numResults": self._integer("num_results", num_results, 10, 100),
+            }
         )
+        return await self._request("GET", self._endpoint(params), timeout=_BRAND_AND_SEARCH_TIMEOUT)

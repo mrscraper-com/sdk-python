@@ -53,26 +53,22 @@ The API body contains message and data. Account details remain nested in data, i
 
 Retrieve the raw HTML of a page. Browser rendering is optional.
 
-| Parameter           | HTTP field         | Type                                                            | Default              | Description                                                                                     |
-| ------------------- | ------------------ | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`               | `url`              | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
-| `timeout`           | `timeout`          | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
-| `geo_code`          | `geoCode`          | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
-| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
-| `super`             | `super`            | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
-| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
-| `proxy`             | `proxy`            | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
-| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
-| `save_result`       | `saveResult`       | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
-| `block_resources`   | `blockResources`   | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
-| `wait_for_selector` | `waitForSelector`  | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
-| `return_cookie`     | `returnCookie`     | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
-| `browser_rendering` | `browserRendering` | bool                                                            | `False`              | Whether to render the page in a browser before returning the result.                            |
-| `warm_start`        | `warmStart`        | bool                                                            | `False`              | Whether to enable warm start for more reliable scraping, at the cost of additional latency.     |
+| Parameter           | HTTP field         | Type           | Default          | Description                                                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------ | -------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str            | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                                                                                                                                    |
+| `browser_rendering` | `browserRendering` | bool           | `None` (omitted) | Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked.                                                                                                       |
+| `timeout`           | `timeout`          | int            | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                                                                                                                                 |
+| `warm_start`        | `warmStart`        | bool           | `False`          | Whether to open the site's home page first to warm the session before loading the target URL.                                                                                                                                                                                                         |
+| `block_resources`   | `blockResources`   | bool           | `False`          | Whether to block images, fonts, and stylesheets while loading the page.                                                                                                                                                                                                                               |
+| `wait_for_selector` | `waitForSelector`  | str            | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                                                                                                                       |
+| `geo_code`          | `geoCode`          | str            | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                                                                                                                                                                     |
+| `max_age`           | `maxAge`           | int            | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                                                                                                                      |
+| `max_retries`       | `maxRetries`       | int            | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                                                                                                                                |
+| `screenshot`        | `screenshot`       | `False` or str | `False`          | Screenshot to capture with the HTML: false for none, full for the entire page, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. Setting a screenshot also sends browserRendering=true. |
 
-The default response body is HTML text. Additional controls can cause the API to return JSON; the returned structure is preserved.
+The response body is HTML text. With a screenshot, the API returns JSON containing html and a base64 screenshot.
 
-**Success response**
+**Default HTML text**
 
 ```json
 {
@@ -84,44 +80,38 @@ The default response body is HTML text. Additional controls can cause the API to
 }
 ```
 
-## Scrape Markdown
-
-Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
-
-| Parameter           | HTTP field         | Type                                                            | Default              | Description                                                                                     |
-| ------------------- | ------------------ | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`               | `url`              | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
-| `timeout`           | `timeout`          | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
-| `geo_code`          | `geoCode`          | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
-| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
-| `super`             | `super`            | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
-| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
-| `proxy`             | `proxy`            | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
-| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
-| `save_result`       | `saveResult`       | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
-| `block_resources`   | `blockResources`   | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
-| `wait_for_selector` | `waitForSelector`  | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
-| `return_cookie`     | `returnCookie`     | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
-| `browser_rendering` | `browserRendering` | bool                                                            | `False`              | Whether to render the page in a browser before returning the result.                            |
-| `warm_start`        | `warmStart`        | bool                                                            | `False`              | Whether to enable warm start for more reliable scraping, at the cost of additional latency.     |
-| `html`              | `html`             | bool                                                            | `False`              | Whether to include the page HTML in the response.                                               |
-
-The default response body is Markdown text. Enabling HTML returns JSON containing both HTML and Markdown.
-
-**With html enabled**
+**With a screenshot**
 
 ```json
 {
   "status_code": 200,
   "data": {
     "html": "<html>...</html>",
-    "markdown": "# Example page\n\n..."
+    "screenshot": "BASE64_IMAGE_DATA"
   },
   "headers": {
-    "content-type": "application/json"
+    "content-type": "application/json; charset=utf-8"
   }
 }
 ```
+
+## Scrape Markdown
+
+Retrieve a page as clean Markdown. Browser rendering is optional.
+
+| Parameter           | HTTP field         | Type | Default          | Description                                                                                                                                                                                     |
+| ------------------- | ------------------ | ---- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                              |
+| `browser_rendering` | `browserRendering` | bool | `None` (omitted) | Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked. |
+| `timeout`           | `timeout`          | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                           |
+| `warm_start`        | `warmStart`        | bool | `False`          | Whether to open the site's home page first to warm the session before loading the target URL.                                                                                                   |
+| `block_resources`   | `blockResources`   | bool | `False`          | Whether to block images, fonts, and stylesheets while loading the page.                                                                                                                         |
+| `wait_for_selector` | `waitForSelector`  | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                 |
+| `geo_code`          | `geoCode`          | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                                                               |
+| `max_age`           | `maxAge`           | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                |
+| `max_retries`       | `maxRetries`       | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                          |
+
+The response body is Markdown text.
 
 **Default Markdown text**
 
@@ -137,27 +127,19 @@ The default response body is Markdown text. Enabling HTML returns JSON containin
 
 ## Get screenshot
 
-Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled.
 
-| Parameter           | HTTP field        | Type                                                            | Default              | Description                                                                                     |
-| ------------------- | ----------------- | --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`               | `url`             | str                                                             | Required             | Absolute HTTP or HTTPS URL of the page to process.                                              |
-| `timeout`           | `timeout`         | int                                                             | `300`                | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.     |
-| `geo_code`          | `geoCode`         | str                                                             | `"us"`               | Two-letter country code to load the page from, sent in lowercase.                               |
-| `proxy_country`     | `proxyCountry`    | str                                                             | `"us"`               | Two-letter country code of the proxy server, sent in lowercase.                                 |
-| `super`             | `super`           | bool                                                            | `False`              | Whether to route the request through real devices.                                              |
-| `wait_until`        | `waitUntil`       | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
-| `proxy`             | `proxy`           | str                                                             | `None` (omitted)     | Custom proxy URL used to load the page.                                                         |
-| `max_retries`       | `maxRetries`      | int                                                             | `None` (omitted)     | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.          |
-| `save_result`       | `saveResult`      | bool                                                            | `False`              | Whether to save the result to the dashboard Result tab.                                         |
-| `block_resources`   | `blockResources`  | bool                                                            | `False`              | Whether to block images, fonts, and stylesheets while loading the page.                         |
-| `wait_for_selector` | `waitForSelector` | str                                                             | `None` (omitted)     | Wait for the page to contain the specified CSS selector before returning the result.            |
-| `return_cookie`     | `returnCookie`    | bool                                                            | `False`              | Whether to include browser session cookies in the response.                                     |
-| `screenshot`        | `screenshot`      | str: `full`, `top`                                              | `"full"`             | Screenshot area to capture: full for the entire page or top for the top viewport.               |
-| `html`              | `html`            | bool                                                            | `True`               | Whether to include the page HTML in the response.                                               |
-| `markdown`          | `markdown`        | bool                                                            | `False`              | Whether to include the page Markdown in the response.                                           |
+| Parameter           | HTTP field        | Type | Default          | Description                                                                                                                                                                                                                    |
+| ------------------- | ----------------- | ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `url`               | `url`             | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                                                             |
+| `screenshot`        | `screenshot`      | str  | `"full"`         | Screenshot area to capture: full for the entire scroll height, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. |
+| `timeout`           | `timeout`         | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                                                          |
+| `wait_for_selector` | `waitForSelector` | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                                                |
+| `geo_code`          | `geoCode`         | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                                                                                              |
+| `max_age`           | `maxAge`          | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                                               |
+| `max_retries`       | `maxRetries`      | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                                                         |
 
-The response body contains a base64 screenshot and requested page outputs. The API can still include HTML when HTML output is disabled.
+The response body is JSON containing a base64 PNG screenshot and the page HTML, which the API includes even though html=false is sent.
 
 **Success response**
 
@@ -166,8 +148,7 @@ The response body contains a base64 screenshot and requested page outputs. The A
   "status_code": 200,
   "data": {
     "html": "<html>...</html>",
-    "screenshot": "BASE64_PNG_DATA",
-    "markdown": "# Example page\n\n..."
+    "screenshot": "BASE64_PNG_DATA"
   },
   "headers": {
     "content-type": "application/json; charset=utf-8"
@@ -223,23 +204,22 @@ The API body contains message and a data object with job_id, status, url, final_
 
 Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
 
-| Parameter           | HTTP field         | Type                                                            | Default                                       | Description                                                                                             |
-| ------------------- | ------------------ | --------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `url`               | `url`              | str                                                             | Required                                      | Absolute HTTP or HTTPS URL of the page to process.                                                      |
-| `timeout`           | `timeout`          | int                                                             | `300`                                         | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds.             |
-| `geo_code`          | `geoCode`          | str                                                             | `"us"`                                        | Two-letter country code to load the page from, sent in lowercase.                                       |
-| `proxy_country`     | `proxyCountry`     | str                                                             | `"us"`                                        | Two-letter country code of the proxy server, sent in lowercase.                                         |
-| `super`             | `super`            | bool                                                            | `False`                                       | Whether to route the request through real devices.                                                      |
-| `wait_until`        | `waitUntil`        | str: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"`                          | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2.         |
-| `proxy`             | `proxy`            | str                                                             | `None` (omitted)                              | Custom proxy URL used to load the page.                                                                 |
-| `max_retries`       | `maxRetries`       | int                                                             | `None` (omitted)                              | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                  |
-| `save_result`       | `saveResult`       | bool                                                            | `False`                                       | Whether to save the result to the dashboard Result tab.                                                 |
-| `prompt`            | `prompt`           | str                                                             | `"Extract all data as complete as possible."` | Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output. |
-| `browser_rendering` | `browserRendering` | bool                                                            | `False`                                       | Whether to render the page in a browser before returning the result.                                    |
-| `html`              | `html`             | bool                                                            | `False`                                       | Whether to include the page HTML in the response.                                                       |
-| `screenshot`        | `screenshot`       | bool                                                            | `False`                                       | Whether to include a base64 screenshot in the response.                                                 |
+| Parameter           | HTTP field         | Type | Default                                       | Description                                                                                                                                                                                     |
+| ------------------- | ------------------ | ---- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`               | `url`              | str  | Required                                      | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                              |
+| `prompt`            | `prompt`           | str  | `"Extract all data as complete as possible."` | Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output.                                                                                         |
+| `html`              | `html`             | bool | `True`                                        | Whether to include the page HTML in the response.                                                                                                                                               |
+| `browser_rendering` | `browserRendering` | bool | `None` (omitted)                              | Whether to load the page in a browser: true always does and false never does. Omit it to load the page without a browser first and switch to a browser automatically if the request is blocked. |
+| `timeout`           | `timeout`          | int  | `300`                                         | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                           |
+| `warm_start`        | `warmStart`        | bool | `False`                                       | Whether to open the site's home page first to warm the session before loading the target URL.                                                                                                   |
+| `block_resources`   | `blockResources`   | bool | `False`                                       | Whether to block images, fonts, and stylesheets while loading the page.                                                                                                                         |
+| `wait_for_selector` | `waitForSelector`  | str  | `None` (omitted)                              | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                 |
+| `geo_code`          | `geoCode`          | str  | `None` (omitted)                              | Two-letter country code to load the page from, sent in lowercase.                                                                                                                               |
+| `max_age`           | `maxAge`           | int  | `0`                                           | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                |
+| `max_retries`       | `maxRetries`       | int  | `None` (omitted)                              | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                          |
+| `screenshot`        | `screenshot`       | bool | `False`                                       | Whether to include a base64 screenshot in the response.                                                                                                                                         |
 
-Extraction results are in the API body's data field and follow the requested schema. Response metadata includes thread_id, token_usage, status, error, runtime, and cookies. html, markdown, and screenshot can be empty strings when not requested.
+Extraction results are in the API body's data field and follow the requested schema. Response metadata includes thread_id, token_usage, status, error, runtime, and cookies. html contains the page HTML unless disabled; markdown and screenshot can be empty strings.
 
 **Success response**
 
@@ -256,7 +236,7 @@ Extraction results are in the API body's data field and follow the requested sch
     ],
     "thread_id": "THREAD_ID",
     "token_usage": 1,
-    "html": "",
+    "html": "<html>...</html>",
     "markdown": "",
     "screenshot": "",
     "status": "Results ready",
@@ -274,11 +254,11 @@ Extraction results are in the API body's data field and follow the requested sch
 
 Search the web and return ranked results with titles, URLs, descriptions, and sources.
 
-| Parameter     | HTTP field   | Type | Default  | Description                                                                                       |
-| ------------- | ------------ | ---- | -------- | ------------------------------------------------------------------------------------------------- |
-| `query`       | `query`      | str  | Required | Search query text, trimmed before sending, containing 1 to 1000 characters.                       |
-| `country`     | `country`    | str  | `"us"`   | Two-letter country code to search from, sent in lowercase.                                        |
-| `num_results` | `numResults` | int  | `10`     | Number of search results to request, as an integer from 10 to 100. Fewer results may be returned. |
+| Parameter     | HTTP field   | Type | Default          | Description                                                                                       |
+| ------------- | ------------ | ---- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `query`       | `query`      | str  | Required         | Search query text, trimmed before sending, containing 1 to 1000 characters.                       |
+| `country`     | `country`    | str  | `None` (omitted) | Two-letter country code to search from, sent in lowercase.                                        |
+| `num_results` | `numResults` | int  | `10`             | Number of search results to request, as an integer from 10 to 100. Fewer results may be returned. |
 
 The API body contains success, message, a data array, and tokenUsage. Each result includes rank, title, url, description, and source.
 

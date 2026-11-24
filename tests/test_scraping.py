@@ -2,48 +2,207 @@ import pytest
 
 from tests.test_client import URL
 
+PAGE_METHODS = ("scrape_html", "scrape_markdown", "get_screenshot", "scrape_json")
+LOADING_METHODS = ("scrape_html", "scrape_markdown", "scrape_json")
+
+
+@pytest.mark.parametrize("method", LOADING_METHODS)
+async def test_browser_rendering_is_omitted_unless_set(recorded, method):
+    client, calls = recorded
+    for value in (None, True, False):
+        await getattr(client, method)(URL, browser_rendering=value)
+        sent = calls[-1].url.params.get("browserRendering")
+        assert sent == (None if value is None else str(value).lower())
+
 
 @pytest.mark.parametrize(
-    "method,options,expected",
+    "screenshot",
+    [False, "full", "top", "100x100", "1280x800", "3840x3840", "1280x800-25", "1920x1080-300"],
+)
+async def test_scrape_html_accepts_documented_screenshots(recorded, screenshot):
+    client, calls = recorded
+    await client.scrape_html(URL, screenshot=screenshot)
+    assert calls[0].url.params["screenshot"] == str(screenshot).lower()
+    rendering = calls[0].url.params.get("browserRendering")
+    assert rendering == (None if screenshot is False else "true")
+
+
+@pytest.mark.parametrize("screenshot", ["top", "full", "1280x800", "1920x1080-75"])
+@pytest.mark.parametrize("browser_rendering", [None, True, False])
+async def test_scrape_html_screenshot_sends_browser_rendering(
+    recorded, screenshot, browser_rendering
+):
+    client, calls = recorded
+    await client.scrape_html(URL, screenshot=screenshot, browser_rendering=browser_rendering)
+    params = list(calls[0].url.params.multi_items())
+    assert params[:4] == [
+        ("url", URL),
+        ("html", "true"),
+        ("markdown", "false"),
+        ("browserRendering", "true"),
+    ]
+    assert dict(params)["screenshot"] == screenshot
+
+
+@pytest.mark.parametrize("browser_rendering", [None, True, False])
+async def test_scrape_html_without_screenshot_keeps_browser_rendering(recorded, browser_rendering):
+    client, calls = recorded
+    await client.scrape_html(URL, browser_rendering=browser_rendering)
+    params = calls[0].url.params
+    assert params["screenshot"] == "false"
+    assert params.get("browserRendering") == (
+        None if browser_rendering is None else str(browser_rendering).lower()
+    )
+
+
+async def test_scrape_html_screenshot_still_validates_browser_rendering(recorded):
+    client, calls = recorded
+    with pytest.raises(ValueError, match="browser_rendering must be a boolean"):
+        await client.scrape_html(URL, screenshot="top", browser_rendering="false")
+    assert calls == []
+
+
+async def test_json_screenshot_does_not_force_browser_rendering(recorded):
+    client, calls = recorded
+    await client.scrape_json(URL, screenshot=True)
+    await client.scrape_json(URL, screenshot=True, browser_rendering=False)
+    assert "browserRendering" not in calls[0].url.params
+    assert calls[1].url.params["browserRendering"] == "false"
+
+
+@pytest.mark.parametrize(
+    "screenshot",
     [
-        (
-            "scrape_markdown",
-            {"html": True, "browser_rendering": False},
-            {"html": "true", "markdown": "true", "browserRendering": "true"},
-        ),
-        (
-            "get_screenshot",
-            {"screenshot": "top", "html": False, "markdown": True},
-            {"screenshot": "top", "html": "false", "markdown": "true", "browserRendering": "true"},
-        ),
+        True,
+        0,
+        "",
+        "FULL",
+        "bottom",
+        "99x800",
+        "1280x3841",
+        "12345x800",
+        "1280x800-24",
+        "1280x800-301",
+        "1280x800-",
+        "1280x800\n",
+        "١٢٨٠x800",
+        None,
     ],
 )
-async def test_combined_outputs(recorded, method, options, expected):
+async def test_scrape_html_rejects_other_screenshots(recorded, screenshot):
     client, calls = recorded
-    await getattr(client, method)(URL, **options)
-    for key, value in expected.items():
-        assert calls[0].url.params[key] == value
+    with pytest.raises(ValueError, match="screenshot must be False, full, top"):
+        await client.scrape_html(URL, screenshot=screenshot)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "area", ["full", "top", "100x100", "1280x800", "3840x3840", "1280x800-25", "1920x1080-75"]
+)
+async def test_get_screenshot_sends_the_requested_area(recorded, area):
+    client, calls = recorded
+    await client.get_screenshot(URL, screenshot=area)
+    assert list(calls[0].url.params.multi_items()) == [
+        ("url", URL),
+        ("screenshot", area),
+        ("html", "false"),
+        ("markdown", "false"),
+        ("browserRendering", "true"),
+        ("timeout", "300"),
+        ("saveResult", "true"),
+        ("maxAge", "0"),
+    ]
+
+
+async def test_get_screenshot_defaults_to_the_full_page(recorded):
+    client, calls = recorded
+    await client.get_screenshot(URL)
+    assert calls[0].url.params["screenshot"] == "full"
+
+
+@pytest.mark.parametrize(
+    "area",
+    [
+        False,
+        True,
+        None,
+        0,
+        "",
+        "FULL",
+        "bottom",
+        "99x800",
+        "1280x3841",
+        "1280x800-301",
+        "1280x800\n",
+    ],
+)
+async def test_get_screenshot_rejects_other_areas(recorded, area):
+    client, calls = recorded
+    with pytest.raises(ValueError, match="screenshot must be full, top, or WIDTHxHEIGHT"):
+        await client.get_screenshot(URL, screenshot=area)
+    assert calls == []
+
+
+@pytest.mark.parametrize("method", PAGE_METHODS)
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"timeout": 0},
+        {"timeout": 331},
+        {"timeout": True},
+        {"timeout": 1.5},
+        {"timeout": None},
+        {"max_age": -1},
+        {"max_age": 604800001},
+        {"max_age": 1.5},
+        {"max_age": None},
+        {"max_retries": -1},
+        {"max_retries": 1.5},
+        {"geo_code": "usa"},
+        {"geo_code": "1a"},
+        {"wait_for_selector": " "},
+        {"wait_for_selector": "a" * 501},
+        {"url": "file:///tmp/test"},
+    ],
+)
+async def test_invalid_page_controls_do_not_send(recorded, method, options):
+    client, calls = recorded
+    options = dict(options)
+    target = options.pop("url", URL)
+    with pytest.raises(ValueError):
+        await getattr(client, method)(target, **options)
+    assert calls == []
+
+
+@pytest.mark.parametrize("method", LOADING_METHODS)
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"browser_rendering": "true"},
+        {"browser_rendering": 1},
+        {"block_resources": 1},
+        {"block_resources": None},
+    ],
+)
+async def test_invalid_loading_controls_do_not_send(recorded, method, options):
+    client, calls = recorded
+    with pytest.raises(ValueError):
+        await getattr(client, method)(URL, **options)
+    assert calls == []
 
 
 @pytest.mark.parametrize(
     "method,options",
     [
-        ("scrape_html", {"timeout": 0}),
-        ("scrape_html", {"timeout": 301}),
-        ("scrape_html", {"timeout": True}),
-        ("scrape_html", {"timeout": 1.5}),
-        ("scrape_html", {"max_retries": -1}),
-        ("scrape_html", {"max_retries": 1.5}),
-        ("scrape_html", {"geo_code": "usa"}),
-        ("scrape_html", {"proxy_country": "1a"}),
-        ("scrape_html", {"wait_until": "networkidle"}),
-        ("get_screenshot", {"screenshot": True}),
         ("scrape_json", {"prompt": " "}),
-        ("scrape_html", {"url": "file:///tmp/test"}),
+        ("scrape_json", {"html": "true"}),
+        ("scrape_json", {"screenshot": "full"}),
+        ("scrape_brand", {"url": "example.com"}),
     ],
 )
-async def test_invalid_controls_do_not_send(recorded, method, options):
+async def test_invalid_service_controls_do_not_send(recorded, method, options):
     client, calls = recorded
+    options = dict(options)
     target = options.pop("url", URL)
     with pytest.raises(ValueError):
         await getattr(client, method)(target, **options)
@@ -56,6 +215,7 @@ async def test_invalid_controls_do_not_send(recorded, method, options):
         (" ", {}),
         ("a" * 1001, {}),
         ("ok", {"country": "usa"}),
+        ("ok", {"country": ""}),
         ("ok", {"num_results": 9}),
         ("ok", {"num_results": 101}),
         ("ok", {"num_results": True}),
@@ -76,14 +236,77 @@ async def test_unicode_query_boundary(recorded):
     assert calls[0].url.params["numResults"] == "100"
 
 
-async def test_json_rejects_unsupported_loading_controls(recorded):
+@pytest.mark.parametrize(
+    "method,option",
+    [
+        (method, option)
+        for method in PAGE_METHODS
+        for option in (
+            "super",
+            "wait_until",
+            "proxy_country",
+            "proxy",
+            "return_cookie",
+            "save_result",
+            "token_cap",
+            "action",
+        )
+    ]
+    + [
+        ("scrape_markdown", "html"),
+        ("scrape_markdown", "screenshot"),
+        ("get_screenshot", "html"),
+        ("get_screenshot", "markdown"),
+        ("get_screenshot", "browser_rendering"),
+        ("get_screenshot", "warm_start"),
+        ("get_screenshot", "block_resources"),
+    ],
+)
+async def test_undocumented_controls_are_not_accepted(recorded, method, option):
     client, calls = recorded
     with pytest.raises(TypeError):
-        await client.scrape_json(URL, block_resources=True)
+        await getattr(client, method)(URL, **{option: "value"})
     assert calls == []
 
 
-async def test_status_and_search_do_not_expose_transport_timeout(recorded):
+async def test_brand_sends_only_the_url(recorded):
+    client, calls = recorded
+    await client.scrape_brand(URL)
+    assert list(calls[0].url.params.multi_items()) == [
+        ("action", "brand-scraping"),
+        ("url", URL),
+        ("bundle", "none"),
+    ]
+    # Brand keeps the fixed 120-second deadline.
+    assert calls[0].extensions["timeout"]["read"] == 120
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "timeout",
+        "warm_start",
+        "geo_code",
+        "max_age",
+        "save_result",
+        "wait_for_selector",
+        "browser_rendering",
+        "block_resources",
+        "token_cap",
+        "max_retries",
+        "screenshot",
+        "bundle",
+        "action",
+    ],
+)
+async def test_brand_rejects_other_controls(recorded, option):
+    client, calls = recorded
+    with pytest.raises(TypeError):
+        await client.scrape_brand(URL, **{option: "value"})
+    assert calls == []
+
+
+async def test_status_and_search_controls_stay_minimal(recorded):
     client, calls = recorded
     with pytest.raises(TypeError):
         await client.status(timeout=30)
@@ -92,7 +315,13 @@ async def test_status_and_search_do_not_expose_transport_timeout(recorded):
     assert calls == []
 
 
-@pytest.mark.parametrize("method", ["scrape_html", "scrape_markdown"])
+async def test_search_keeps_its_fixed_deadline(recorded):
+    client, calls = recorded
+    await client.web_search("query")
+    assert calls[0].extensions["timeout"]["read"] == 120
+
+
+@pytest.mark.parametrize("method", LOADING_METHODS)
 async def test_warm_start_is_forwarded_and_strictly_boolean(recorded, method):
     client, calls = recorded
     operation = getattr(client, method)
@@ -104,11 +333,3 @@ async def test_warm_start_is_forwarded_and_strictly_boolean(recorded, method):
         with pytest.raises(ValueError, match="warm_start must be a boolean"):
             await operation(URL, warm_start=value)
     assert len(calls) == sent
-
-
-@pytest.mark.parametrize("method", ["get_screenshot", "scrape_json"])
-async def test_warm_start_is_not_exposed_on_other_page_services(recorded, method):
-    client, calls = recorded
-    with pytest.raises(TypeError):
-        await getattr(client, method)(URL, warm_start=True)
-    assert calls == []

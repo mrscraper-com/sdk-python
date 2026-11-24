@@ -1,4 +1,9 @@
-"""Manual live smoke tests. Set MRSCRAPER_API_TOKEN; calls spend API quota."""
+"""Manual live smoke tests. Set MRSCRAPER_API_TOKEN; calls spend API quota.
+
+Results are saved under manual_results/ (git-ignored): one JSON file per call,
+decoded screenshots, and summary.json with each call's status, options, and request
+line. Credentials travel in headers and never appear in the request line.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,15 @@ import base64
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-from mrscraper import MrScraper
+from mrscraper import APIError, MrScraper
 
 METHOD_ORDER = (
     "status",
@@ -26,8 +34,30 @@ METHOD_ORDER = (
 )
 
 
+EXAMPLES = """examples:
+  python file.py                                   # all seven services with defaults
+  python file.py scrape-html --args '{"screenshot": "top", "max_age": 3600000, "geo_code": "gb"}'
+  python file.py scrape-html --args '{"browser_rendering": true, "wait_for_selector": "body"}'
+  python file.py scrape-markdown --args '{"browser_rendering": false, "block_resources": true}'
+  python file.py get-screenshot --args '{"wait_for_selector": "body", "timeout": 120}'
+  python file.py get-screenshot --args '{"screenshot": "top"}'
+  python file.py get-screenshot --args '{"screenshot": "1920x1080-75"}'
+  python file.py scrape-brand --url https://mrscraper.com/
+  python file.py scrape-json --url https://books.toscrape.com/ \\
+      --args '{"prompt": "Extract the first 3 books", "html": false, "screenshot": true}'
+  python file.py web-search --query "running shoes" --args '{"country": "id", "num_results": 20}'
+
+Options use the SDK's snake_case argument names. wait_for_selector needs a rendered
+page, so do not combine it with browser_rendering false.
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "method",
         nargs="?",
@@ -68,35 +98,69 @@ async def main() -> int:
         parser.error("--args must be a JSON object")
     if args.method == "all" and options:
         parser.error("Select one service when using --args")
-    client = MrScraper(token)
+    sent: list[str] = []
+
+    async def record(request: httpx.Request) -> None:
+        sent.append(f"{request.method} {request.url}")
+
     out = args.save_dir / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     out.mkdir(parents=True, exist_ok=True)
     summary = []
-    for method in METHOD_ORDER if args.method == "all" else (args.method,):
-        args.method = method
-        try:
-            result = await run_method(client, args)
-            raw = json.dumps(
-                result,
-                indent=2,
-                default=lambda b: {"encoding": "base64", "base64": base64.b64encode(b).decode()},
-            )
-            (out / f"{method}.json").write_text(raw)
-            data = result.get("data")
-            if isinstance(data, dict) and isinstance(data.get("screenshot"), str):
-                (out / f"{method}.png").write_bytes(
-                    base64.b64decode(data["screenshot"].split(",")[-1])
-                )
-            if isinstance(data, dict) and data.get("success") is False:
-                raise RuntimeError(data.get("message", "Unsuccessful response"))
-            print(f"PASS {method} (HTTP {result['status_code']}): {out / (method + '.json')}")
-            summary.append({"service": method, "passed": True})
-        except Exception as exc:
-            print(f"FAIL {method}: {str(exc).replace(token, '[REDACTED]')}")
-            summary.append({"service": method, "passed": False})
+    async with httpx.AsyncClient(event_hooks={"request": [record]}) as http_client:
+        client = MrScraper(token, http_client=http_client)
+        for method in METHOD_ORDER if args.method == "all" else (args.method,):
+            args.method = method
+            summary.append(await run_and_save(client, args, options, out, token, sent))
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"{sum(row['passed'] for row in summary)}/{len(summary)} passed")
     return int(any(not row["passed"] for row in summary))
+
+
+async def run_and_save(
+    client: MrScraper,
+    args: argparse.Namespace,
+    options: dict[str, Any],
+    out: Path,
+    token: str,
+    sent: list[str],
+) -> dict[str, Any]:
+    """Call one service, save its response and screenshot, and return a summary row."""
+    method = args.method
+    started = time.monotonic()
+    sent.clear()
+    row: dict[str, Any] = {"service": method, "options": options}
+    try:
+        result = await run_method(client, args)
+        row["status_code"] = result["status_code"]
+        raw = json.dumps(
+            result,
+            indent=2,
+            default=lambda b: {"encoding": "base64", "base64": base64.b64encode(b).decode()},
+        )
+        (out / f"{method}.json").write_text(raw)
+        data = result.get("data")
+        if (
+            isinstance(data, dict)
+            and isinstance(data.get("screenshot"), str)
+            and data["screenshot"]
+        ):
+            image = base64.b64decode(data["screenshot"].split(",")[-1])
+            # The API documents PNG, but Scrape HTML has also returned JPEG.
+            extension = "jpg" if image[:3] == b"\xff\xd8\xff" else "png"
+            (out / f"{method}.{extension}").write_bytes(image)
+        if isinstance(data, dict) and data.get("success") is False:
+            raise RuntimeError(data.get("message", "Unsuccessful response"))
+        print(f"PASS {method} (HTTP {result['status_code']}): {out / (method + '.json')}")
+        row["passed"] = True
+    except Exception as exc:
+        message = str(exc).replace(token, "[REDACTED]")
+        print(f"FAIL {method}: {message}")
+        row.update(passed=False, error=message)
+        if isinstance(exc, APIError):
+            row["status_code"] = exc.status_code
+    row["request"] = sent[-1] if sent else None
+    row["seconds"] = round(time.monotonic() - started, 2)
+    return row
 
 
 if __name__ == "__main__":
