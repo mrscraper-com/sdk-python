@@ -27,6 +27,10 @@ _MAX_GET_URL_LENGTH = 8000
 _TRANSPORT_GRACE_SECONDS = 30
 _BRAND_AND_SEARCH_TIMEOUT = 120
 _SCREENSHOT_VIEWPORT = re.compile(r"([0-9]{3,4})x([0-9]{3,4})(?:-([0-9]{2,3}))?")
+_SCREENSHOT_AREA_HINT = (
+    "WIDTHxHEIGHT from 100 to 3840 pixels with an optional -ZOOM from 25 to 300, "
+    "such as 1280x800 or 1920x1080-75"
+)
 
 
 class MrScraper:
@@ -260,23 +264,32 @@ class MrScraper:
         return None if value is None else cls._country(name, value)
 
     @staticmethod
-    def _screenshot_capture(value: ScreenshotCapture) -> ScreenshotCapture:
-        """Accept False, full, top, or a WIDTHxHEIGHT viewport with an optional -ZOOM."""
-        if value is False:
+    def _is_screenshot_area(value: Any) -> bool:
+        """Return whether value is full, top, or a WIDTHxHEIGHT viewport with an optional -ZOOM."""
+        if not isinstance(value, str):
+            return False
+        if value in ("full", "top"):
+            return True
+        match = _SCREENSHOT_VIEWPORT.fullmatch(value)
+        if not match:
+            return False
+        width, height = int(match[1]), int(match[2])
+        zoom = 100 if match[3] is None else int(match[3])
+        return 100 <= width <= 3840 and 100 <= height <= 3840 and 25 <= zoom <= 300
+
+    @classmethod
+    def _screenshot_capture(cls, value: ScreenshotCapture) -> ScreenshotCapture:
+        """Accept False or a screenshot area for Scrape HTML."""
+        if value is False or cls._is_screenshot_area(value):
             return value
-        if isinstance(value, str):
-            if value in ("full", "top"):
-                return value
-            match = _SCREENSHOT_VIEWPORT.fullmatch(value)
-            if match:
-                width, height = int(match[1]), int(match[2])
-                zoom = 100 if match[3] is None else int(match[3])
-                if 100 <= width <= 3840 and 100 <= height <= 3840 and 25 <= zoom <= 300:
-                    return value
-        raise ValueError(
-            "screenshot must be False, full, top, or WIDTHxHEIGHT from 100 to 3840 pixels "
-            "with an optional -ZOOM from 25 to 300, such as 1280x800 or 1920x1080-75"
-        )
+        raise ValueError(f"screenshot must be False, full, top, or {_SCREENSHOT_AREA_HINT}")
+
+    @classmethod
+    def _screenshot_area(cls, value: str) -> str:
+        """Accept a screenshot area for Get screenshot."""
+        if cls._is_screenshot_area(value):
+            return value
+        raise ValueError(f"screenshot must be full, top, or {_SCREENSHOT_AREA_HINT}")
 
     @classmethod
     def _page_fields(
@@ -404,16 +417,18 @@ class MrScraper:
         self,
         url: str,
         *,
+        screenshot: str = "full",
         timeout: int = 300,
         wait_for_selector: str | None = None,
         geo_code: str | None = None,
         max_age: int = 0,
         max_retries: int | None = None,
     ) -> dict[str, Any]:
-        """Capture a base64 PNG screenshot of the full page. Browser rendering is always enabled.
+        """Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
+            screenshot: Screenshot area to capture: full for the entire scroll height, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75.
             timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
@@ -423,9 +438,10 @@ class MrScraper:
         Returns:
             A response envelope containing status_code, data, and headers.
         """
+        area = self._screenshot_area(screenshot)
         params = {
             "url": self._url(url),
-            "screenshot": "full",
+            "screenshot": area,
             "html": False,
             "markdown": False,
             "browserRendering": True,

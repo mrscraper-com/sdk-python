@@ -40,6 +40,8 @@ EXAMPLES = """examples:
   python file.py scrape-html --args '{"browser_rendering": true, "wait_for_selector": "body"}'
   python file.py scrape-markdown --args '{"browser_rendering": false, "block_resources": true}'
   python file.py get-screenshot --args '{"wait_for_selector": "body", "timeout": 120}'
+  python file.py get-screenshot --args '{"screenshot": "top"}'
+  python file.py get-screenshot --args '{"screenshot": "1920x1080-75"}'
   python file.py scrape-brand --url https://mrscraper.com/
   python file.py scrape-json --url https://books.toscrape.com/ \\
       --args '{"prompt": "Extract the first 3 books", "html": false, "screenshot": true}'

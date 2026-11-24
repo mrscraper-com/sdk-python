@@ -129,18 +129,19 @@ The response body is Markdown text.
 
 ## Get screenshot
 
-Capture a base64 PNG screenshot of the full page. Browser rendering is always enabled.
+Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled.
 
-| Parameter           | HTTP field        | Type | Default          | Description                                                                                                                                      |
-| ------------------- | ----------------- | ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `url`               | `url`             | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                               |
-| `timeout`           | `timeout`         | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                            |
-| `wait_for_selector` | `waitForSelector` | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                  |
-| `geo_code`          | `geoCode`         | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                |
-| `max_age`           | `maxAge`          | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape. |
-| `max_retries`       | `maxRetries`      | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                           |
+| Parameter           | HTTP field        | Type | Default          | Description                                                                                                                                                                                                                    |
+| ------------------- | ----------------- | ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `url`               | `url`             | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                                                             |
+| `screenshot`        | `screenshot`      | str  | `"full"`         | Screenshot area to capture: full for the entire scroll height, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. |
+| `timeout`           | `timeout`         | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                                                          |
+| `wait_for_selector` | `waitForSelector` | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                                                |
+| `geo_code`          | `geoCode`         | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                                                                                              |
+| `max_age`           | `maxAge`          | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                                               |
+| `max_retries`       | `maxRetries`      | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                                                         |
 
-The response body is JSON containing a base64 PNG screenshot of the full page and the page HTML, which the API includes even though html=false is sent.
+The response body is JSON containing a base64 PNG screenshot and the page HTML, which the API includes even though html=false is sent.
 
 **Success response**
 

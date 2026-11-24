@@ -96,6 +96,53 @@ async def test_scrape_html_rejects_other_screenshots(recorded, screenshot):
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "area", ["full", "top", "100x100", "1280x800", "3840x3840", "1280x800-25", "1920x1080-75"]
+)
+async def test_get_screenshot_sends_the_requested_area(recorded, area):
+    client, calls = recorded
+    await client.get_screenshot(URL, screenshot=area)
+    assert list(calls[0].url.params.multi_items()) == [
+        ("url", URL),
+        ("screenshot", area),
+        ("html", "false"),
+        ("markdown", "false"),
+        ("browserRendering", "true"),
+        ("timeout", "300"),
+        ("saveResult", "true"),
+        ("maxAge", "0"),
+    ]
+
+
+async def test_get_screenshot_defaults_to_the_full_page(recorded):
+    client, calls = recorded
+    await client.get_screenshot(URL)
+    assert calls[0].url.params["screenshot"] == "full"
+
+
+@pytest.mark.parametrize(
+    "area",
+    [
+        False,
+        True,
+        None,
+        0,
+        "",
+        "FULL",
+        "bottom",
+        "99x800",
+        "1280x3841",
+        "1280x800-301",
+        "1280x800\n",
+    ],
+)
+async def test_get_screenshot_rejects_other_areas(recorded, area):
+    client, calls = recorded
+    with pytest.raises(ValueError, match="screenshot must be full, top, or WIDTHxHEIGHT"):
+        await client.get_screenshot(URL, screenshot=area)
+    assert calls == []
+
+
 @pytest.mark.parametrize("method", PAGE_METHODS)
 @pytest.mark.parametrize(
     "options",
@@ -209,7 +256,6 @@ async def test_unicode_query_boundary(recorded):
     + [
         ("scrape_markdown", "html"),
         ("scrape_markdown", "screenshot"),
-        ("get_screenshot", "screenshot"),
         ("get_screenshot", "html"),
         ("get_screenshot", "markdown"),
         ("get_screenshot", "browser_rendering"),

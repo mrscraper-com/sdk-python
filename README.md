@@ -8,15 +8,15 @@ An async Python client for the seven MrScraper services.
 
 Seven services share the same descriptions, parameter meanings, and defaults across the CLI, SDKs, and integrations. Names, types, authentication, and code examples follow each surface's conventions. See the [API Reference](https://docs.mrscraper.com/docs/api/overview).
 
-| Service                             | Public name       | Description                                                                                                                     |
-| ----------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| [Status](#status)                   | `status`          | Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.             |
-| [Scrape HTML](#scrape-html)         | `scrape_html`     | Retrieve the raw HTML of a page. Browser rendering is optional.                                                                 |
-| [Scrape Markdown](#scrape-markdown) | `scrape_markdown` | Retrieve a page as clean Markdown. Browser rendering is optional.                                                               |
-| [Get screenshot](#get-screenshot)   | `get_screenshot`  | Capture a base64 PNG screenshot of the full page. Browser rendering is always enabled.                                          |
-| [Scrape brand](#scrape-brand)       | `scrape_brand`    | Extract a website's colors, typography, logos, and social links as JSON.                                                        |
-| [Scrape JSON](#scrape-json)         | `scrape_json`     | Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output. |
-| [Web search](#web-search)           | `web_search`      | Search the web and return ranked results with titles, URLs, descriptions, and sources.                                          |
+| Service                             | Public name       | Description                                                                                                                      |
+| ----------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Status](#status)                   | `status`          | Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.              |
+| [Scrape HTML](#scrape-html)         | `scrape_html`     | Retrieve the raw HTML of a page. Browser rendering is optional.                                                                  |
+| [Scrape Markdown](#scrape-markdown) | `scrape_markdown` | Retrieve a page as clean Markdown. Browser rendering is optional.                                                                |
+| [Get screenshot](#get-screenshot)   | `get_screenshot`  | Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled. |
+| [Scrape brand](#scrape-brand)       | `scrape_brand`    | Extract a website's colors, typography, logos, and social links as JSON.                                                         |
+| [Scrape JSON](#scrape-json)         | `scrape_json`     | Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.  |
+| [Web search](#web-search)           | `web_search`      | Search the web and return ranked results with titles, URLs, descriptions, and sources.                                           |
 
 ## Installation
 
@@ -66,7 +66,7 @@ HTML, Markdown, and JSON extraction also accept `browserRendering`, `warmStart`,
 
 ### Fixed request fields
 
-Each service adds its documented fixed fields automatically, so they are not service parameters: `html=true` and `markdown=false` for HTML (plus `browserRendering=true` when a screenshot is set), `markdown=true`, `html=false`, and `screenshot=false` for Markdown, `screenshot=full`, `html=false`, `markdown=false`, and `browserRendering=true` for screenshots, `action=brand-scraping` and `bundle=none` for brand, `agent=general` for JSON extraction, and `action=websearch` for search. HTML, Markdown, screenshots, and JSON extraction also always send `saveResult=true`.
+Each service adds its documented fixed fields automatically, so they are not service parameters: `html=true` and `markdown=false` for HTML (plus `browserRendering=true` when a screenshot is set), `markdown=true`, `html=false`, and `screenshot=false` for Markdown, `browserRendering=true`, `html=false`, and `markdown=false` for screenshots, `action=brand-scraping` and `bundle=none` for brand, `agent=general` for JSON extraction, and `action=websearch` for search. HTML, Markdown, screenshots, and JSON extraction also always send `saveResult=true`.
 
 ## Service reference
 
@@ -263,20 +263,21 @@ The response body is Markdown text.
 
 #### Description
 
-Capture a base64 PNG screenshot of the full page. Browser rendering is always enabled.
+Capture a base64 PNG screenshot of the full page, the first viewport, or a custom viewport. Browser rendering is always enabled.
 
 #### Parameters
 
-| Parameter           | HTTP field        | Type | Default          | Description                                                                                                                                      |
-| ------------------- | ----------------- | ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `url`               | `url`             | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                               |
-| `timeout`           | `timeout`         | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                            |
-| `wait_for_selector` | `waitForSelector` | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                  |
-| `geo_code`          | `geoCode`         | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                |
-| `max_age`           | `maxAge`          | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape. |
-| `max_retries`       | `maxRetries`      | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                           |
+| Parameter           | HTTP field        | Type | Default          | Description                                                                                                                                                                                                                    |
+| ------------------- | ----------------- | ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `url`               | `url`             | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                                                                                                                                             |
+| `screenshot`        | `screenshot`      | str  | `"full"`         | Screenshot area to capture: full for the entire scroll height, top for the first viewport, or a WIDTHxHEIGHT viewport from 100 to 3840 pixels with an optional -ZOOM percent from 25 to 300, such as 1280x800 or 1920x1080-75. |
+| `timeout`           | `timeout`         | int  | `300`            | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.                                                                                                                          |
+| `wait_for_selector` | `waitForSelector` | str  | `None` (omitted) | CSS selector or text to wait for on the page before returning the result, up to 500 characters.                                                                                                                                |
+| `geo_code`          | `geoCode`         | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                                                                                                                                              |
+| `max_age`           | `maxAge`          | int  | `0`              | Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.                                                                               |
+| `max_retries`       | `maxRetries`      | int  | `None` (omitted) | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.                                                                                                                                         |
 
-The request uses `screenshot=full`, `browserRendering=true`, `html=false`, `markdown=false`, and `saveResult=true`; these are not service parameters. The API still includes the page HTML in the response.
+The request uses `browserRendering=true`, `html=false`, `markdown=false`, and `saveResult=true`; these are not service parameters. `screenshot` defaults to `full` and also accepts `top` or a `WIDTHxHEIGHT[-ZOOM]` viewport. The API still includes the page HTML in the response.
 
 #### Example
 
@@ -286,7 +287,7 @@ from mrscraper import MrScraper
 
 async def main():
     client = MrScraper()
-    result = await client.get_screenshot('https://example.com', wait_for_selector='body', timeout=120)
+    result = await client.get_screenshot('https://example.com', screenshot='top', timeout=120)
     print(result["data"])
 
 asyncio.run(main())
@@ -294,7 +295,7 @@ asyncio.run(main())
 
 #### Response
 
-The response body is JSON containing a base64 PNG screenshot of the full page and the page HTML, which the API includes even though html=false is sent.
+The response body is JSON containing a base64 PNG screenshot and the page HTML, which the API includes even though html=false is sent.
 
 **Success response**
 
@@ -581,7 +582,7 @@ Check token precedence when authentication fails. Use snake_case argument names 
 
 ## Migration
 
-Version 0.12.0 matches the Scraper API reference. Removed arguments: `super`, `wait_until`, `proxy_country`, `proxy`, `return_cookie`, `save_result`, `token_cap`, `scrape_markdown(html=...)`, and the `get_screenshot` arguments `screenshot`, `html`, and `markdown`; screenshots always capture the full page. Results are always saved to the dashboard (`saveResult=true`), and `tokenCap` is never sent. New arguments: `max_age`, `action` for HTML and Markdown, and `scrape_html(screenshot=...)`; `scrape_json` now accepts `warm_start`, `block_resources`, and `wait_for_selector`. Changed defaults: `scrape_json(html=True)`, `browser_rendering=None` (automatic), `geo_code=None` and `country=None` (omitted), and page timeouts up to 330 seconds. Earlier releases replaced `client.account()` with `client.status()` and `scraper_api` with the six scraping and search methods.
+Version 0.12.0 matches the Scraper API reference. Removed arguments: `super`, `wait_until`, `proxy_country`, `proxy`, `return_cookie`, `save_result`, `token_cap`, `scrape_markdown(html=...)`, and the `get_screenshot` arguments `html` and `markdown`; `get_screenshot(screenshot=...)` still defaults to `"full"` and now also accepts a `WIDTHxHEIGHT[-ZOOM]` viewport. Results are always saved to the dashboard (`saveResult=true`), and `tokenCap` is never sent. New arguments: `max_age`, `action` for HTML and Markdown, and `scrape_html(screenshot=...)`; `scrape_json` now accepts `warm_start`, `block_resources`, and `wait_for_selector`. Changed defaults: `scrape_json(html=True)`, `browser_rendering=None` (automatic), `geo_code=None` and `country=None` (omitted), and page timeouts up to 330 seconds. Earlier releases replaced `client.account()` with `client.status()` and `scraper_api` with the six scraping and search methods.
 
 ## Development and testing
 
