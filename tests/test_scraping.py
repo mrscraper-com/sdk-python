@@ -226,61 +226,24 @@ async def test_undocumented_controls_are_not_accepted(recorded, method, option):
     assert calls == []
 
 
-async def test_brand_defaults_omit_timeout_and_geo_code(recorded):
+async def test_brand_sends_only_the_url(recorded):
     client, calls = recorded
     await client.scrape_brand(URL)
-    await client.scrape_brand(URL, timeout=None, geo_code=None)
-    for call in calls:
-        assert list(call.url.params.multi_items()) == [
-            ("action", "brand-scraping"),
-            ("url", URL),
-            ("bundle", "none"),
-            ("warmStart", "false"),
-        ]
-        # Without a timeout the deadline uses the 300-second page default.
-        assert call.extensions["timeout"]["read"] == 330
-
-
-async def test_brand_options_map_to_documented_fields(recorded):
-    client, calls = recorded
-    await client.scrape_brand(URL, timeout=120, warm_start=True, geo_code="GB")
     assert list(calls[0].url.params.multi_items()) == [
         ("action", "brand-scraping"),
         ("url", URL),
         ("bundle", "none"),
-        ("timeout", "120"),
-        ("warmStart", "true"),
-        ("geoCode", "gb"),
     ]
-    # The brand deadline follows the timeout instead of a fixed 120 seconds.
-    assert calls[0].extensions["timeout"]["read"] == 150
-
-
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"timeout": 0},
-        {"timeout": 331},
-        {"timeout": True},
-        {"timeout": 1.5},
-        {"warm_start": "true"},
-        {"warm_start": 1},
-        {"warm_start": None},
-        {"geo_code": "usa"},
-        {"geo_code": "1a"},
-        {"geo_code": ""},
-    ],
-)
-async def test_invalid_brand_controls_do_not_send(recorded, options):
-    client, calls = recorded
-    with pytest.raises(ValueError):
-        await client.scrape_brand(URL, **options)
-    assert calls == []
+    # Brand keeps the fixed 120-second deadline.
+    assert calls[0].extensions["timeout"]["read"] == 120
 
 
 @pytest.mark.parametrize(
     "option",
     [
+        "timeout",
+        "warm_start",
+        "geo_code",
         "max_age",
         "save_result",
         "wait_for_selector",
@@ -293,7 +256,7 @@ async def test_invalid_brand_controls_do_not_send(recorded, options):
         "action",
     ],
 )
-async def test_brand_rejects_other_page_controls(recorded, option):
+async def test_brand_rejects_other_controls(recorded, option):
     client, calls = recorded
     with pytest.raises(TypeError):
         await client.scrape_brand(URL, **{option: "value"})

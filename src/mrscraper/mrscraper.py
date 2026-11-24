@@ -18,7 +18,6 @@ DEFAULT_JSON_PROMPT = "Extract all data as complete as possible."
 #: Scrape HTML screenshot: False for none, "full", "top", or "WIDTHxHEIGHT[-ZOOM]".
 ScreenshotCapture = Union[Literal[False], str]
 
-_DEFAULT_TIMEOUT = 300
 _MAX_TIMEOUT = 330
 _MAX_SELECTOR_LENGTH = 500
 # Seven days, the oldest cached result the Scraper API serves.
@@ -26,7 +25,7 @@ _MAX_CACHE_AGE_MS = 604_800_000
 # The Scraper API refuses request URLs over about 8 KB with 414.
 _MAX_GET_URL_LENGTH = 8000
 _TRANSPORT_GRACE_SECONDS = 30
-_SEARCH_TIMEOUT = 120
+_BRAND_AND_SEARCH_TIMEOUT = 120
 _SCREENSHOT_VIEWPORT = re.compile(r"([0-9]{3,4})x([0-9]{3,4})(?:-([0-9]{2,3}))?")
 
 
@@ -490,41 +489,27 @@ class MrScraper:
             "POST", self._endpoint(params), payload=body, timeout=transport_timeout
         )
 
-    async def scrape_brand(
-        self,
-        url: str,
-        *,
-        timeout: int | None = None,
-        warm_start: bool = False,
-        geo_code: str | None = None,
-    ) -> dict[str, Any]:
+    async def scrape_brand(self, url: str) -> dict[str, Any]:
         """Extract a website's colors, typography, logos, and social links as JSON.
 
         Args:
             url: Absolute HTTP or HTTPS URL of the page to process.
-            timeout: Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds.
-            warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
-            geo_code: Two-letter country code to load the page from, sent in lowercase.
 
         Returns:
             A response envelope containing status_code, data, and headers.
         """
         self._validate_token()
-        params = self._compact(
-            {
-                "action": "brand-scraping",
-                "url": self._url(url),
-                "bundle": "none",
-                # timeout and geoCode are sent only when set.
-                "timeout": None
-                if timeout is None
-                else self._integer("timeout", timeout, 1, _MAX_TIMEOUT),
-                "warmStart": self._boolean("warm_start", warm_start),
-                "geoCode": self._optional_country("geo_code", geo_code),
-            }
+        return await self._request(
+            "GET",
+            self._endpoint(
+                {
+                    "action": "brand-scraping",
+                    "url": self._url(url),
+                    "bundle": "none",
+                }
+            ),
+            timeout=_BRAND_AND_SEARCH_TIMEOUT,
         )
-        deadline = (_DEFAULT_TIMEOUT if timeout is None else timeout) + _TRANSPORT_GRACE_SECONDS
-        return await self._request("GET", self._endpoint(params), timeout=deadline)
 
     async def web_search(
         self,
@@ -555,4 +540,4 @@ class MrScraper:
                 "numResults": self._integer("num_results", num_results, 10, 100),
             }
         )
-        return await self._request("GET", self._endpoint(params), timeout=_SEARCH_TIMEOUT)
+        return await self._request("GET", self._endpoint(params), timeout=_BRAND_AND_SEARCH_TIMEOUT)

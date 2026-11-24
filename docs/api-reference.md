@@ -161,12 +161,9 @@ The response body is JSON containing a base64 PNG screenshot of the full page an
 
 Extract a website's colors, typography, logos, and social links as JSON.
 
-| Parameter    | HTTP field  | Type | Default          | Description                                                                                           |
-| ------------ | ----------- | ---- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `url`        | `url`       | str  | Required         | Absolute HTTP or HTTPS URL of the page to process.                                                    |
-| `timeout`    | `timeout`   | int  | `None` (omitted) | Maximum seconds to wait for the scrape, from 1 to 330. The HTTP request allows 30 additional seconds. |
-| `warm_start` | `warmStart` | bool | `False`          | Whether to open the site's home page first to warm the session before loading the target URL.         |
-| `geo_code`   | `geoCode`   | str  | `None` (omitted) | Two-letter country code to load the page from, sent in lowercase.                                     |
+| Parameter | HTTP field | Type | Default  | Description                                        |
+| --------- | ---------- | ---- | -------- | -------------------------------------------------- |
+| `url`     | `url`      | str  | Required | Absolute HTTP or HTTPS URL of the page to process. |
 
 The API body contains message and a data object with job_id, status, url, final_url, brand, and error. Brand details are available at data.data.brand in the response envelope.
 
@@ -293,4 +290,4 @@ The API body contains success, message, a data array, and tokenUsage. Each resul
 
 ## Transport
 
-Status uses a fixed 600-second HTTP deadline and search uses 120 seconds. Page services and brand allow their timeout plus 30 seconds. JSON extraction switches from GET to POST when the encoded URL exceeds 8,000 characters; url, prompt, and agent move to the JSON body.
+Status uses a fixed 600-second HTTP deadline. Brand and search use 120 seconds. Page services allow the page timeout plus 30 seconds. JSON extraction switches from GET to POST when the encoded URL exceeds 8,000 characters; url, prompt, and agent move to the JSON body.

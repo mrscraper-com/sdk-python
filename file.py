@@ -41,7 +41,6 @@ EXAMPLES = """examples:
   python file.py scrape-markdown --args '{"browser_rendering": false, "block_resources": true}'
   python file.py get-screenshot --args '{"wait_for_selector": "body", "timeout": 120}'
   python file.py scrape-brand --url https://mrscraper.com/
-  python file.py scrape-brand --args '{"timeout": 120, "warm_start": true, "geo_code": "gb"}'
   python file.py scrape-json --url https://books.toscrape.com/ \\
       --args '{"prompt": "Extract the first 3 books", "html": false, "screenshot": true}'
   python file.py web-search --query "running shoes" --args '{"country": "id", "num_results": 20}'

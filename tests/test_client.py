@@ -44,16 +44,10 @@ async def test_service_contract(recorded, name):
         return
     assert req.url.host == "api.mrscraper.com"
     if name == "scrape_brand":
-        # timeout is sent only when set; the deadline uses 300 seconds when it is omitted.
-        expected_brand = {
-            "action": "brand-scraping",
-            "url": URL,
-            "bundle": "none",
-            "warmStart": "false",
-        }
+        expected_brand = {"action": "brand-scraping", "url": URL, "bundle": "none"}
         assert params == expected_brand
         assert list(params) == list(expected_brand)
-        assert req.extensions["timeout"]["read"] == 330
+        assert req.extensions["timeout"]["read"] == 120
         return
     if name == "web_search":
         assert req.extensions["timeout"]["read"] == 120
