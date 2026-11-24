@@ -292,9 +292,7 @@ class MrScraper:
         raise ValueError(f"screenshot must be full, top, or {_SCREENSHOT_AREA_HINT}")
 
     @classmethod
-    def _page_fields(
-        cls, values: dict[str, Any], *, loading: bool, action: bool = False
-    ) -> dict[str, Any]:
+    def _page_fields(cls, values: dict[str, Any], *, loading: bool) -> dict[str, Any]:
         """Validate the shared page controls in a method's arguments.
 
         Returns HTTP fields in the documented request order. Optional controls set
@@ -310,8 +308,6 @@ class MrScraper:
             fields["warmStart"] = cls._boolean("warm_start", values["warm_start"])
             fields["blockResources"] = cls._boolean("block_resources", values["block_resources"])
         fields["waitForSelector"] = cls._selector(values["wait_for_selector"])
-        if action:
-            fields["action"] = cls._optional_text("action", values["action"])
         fields["geoCode"] = cls._optional_country("geo_code", values["geo_code"])
         # Results are always saved to the dashboard; saveResult is not an option.
         fields["saveResult"] = True
@@ -340,7 +336,6 @@ class MrScraper:
         warm_start: bool = False,
         block_resources: bool = False,
         wait_for_selector: str | None = None,
-        action: str | None = None,
         geo_code: str | None = None,
         max_age: int = 0,
         max_retries: int | None = None,
@@ -355,7 +350,6 @@ class MrScraper:
             warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
             block_resources: Whether to block images, fonts, and stylesheets while loading the page.
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
-            action: Scraper action that routes the request or simply flags it, useful for separating analytics per domain.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
@@ -365,7 +359,7 @@ class MrScraper:
             A response envelope containing status_code, data, and headers.
         """
         page = self._url(url)
-        fields = self._page_fields(locals(), loading=True, action=True)
+        fields = self._page_fields(locals(), loading=True)
         capture = self._screenshot_capture(screenshot)
         if capture is not False:
             # A screenshot needs a rendered page, so it always sends browserRendering=true.
@@ -382,7 +376,6 @@ class MrScraper:
         warm_start: bool = False,
         block_resources: bool = False,
         wait_for_selector: str | None = None,
-        action: str | None = None,
         geo_code: str | None = None,
         max_age: int = 0,
         max_retries: int | None = None,
@@ -396,7 +389,6 @@ class MrScraper:
             warm_start: Whether to open the site's home page first to warm the session before loading the target URL.
             block_resources: Whether to block images, fonts, and stylesheets while loading the page.
             wait_for_selector: CSS selector or text to wait for on the page before returning the result, up to 500 characters.
-            action: Scraper action that routes the request or simply flags it, useful for separating analytics per domain.
             geo_code: Two-letter country code to load the page from, sent in lowercase.
             max_age: Return a cached result of the same request when it is newer than the selected age. A cached result costs the same tokens as the original scrape.
             max_retries: Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit.
@@ -409,7 +401,7 @@ class MrScraper:
             "markdown": True,
             "html": False,
             "screenshot": False,
-            **self._page_fields(locals(), loading=True, action=True),
+            **self._page_fields(locals(), loading=True),
         }
         return await self._page_request(params)
 

@@ -194,8 +194,6 @@ async def test_invalid_loading_controls_do_not_send(recorded, method, options):
 @pytest.mark.parametrize(
     "method,options",
     [
-        ("scrape_html", {"action": " "}),
-        ("scrape_markdown", {"action": 1}),
         ("scrape_json", {"prompt": " "}),
         ("scrape_json", {"html": "true"}),
         ("scrape_json", {"screenshot": "full"}),
@@ -251,6 +249,7 @@ async def test_unicode_query_boundary(recorded):
             "return_cookie",
             "save_result",
             "token_cap",
+            "action",
         )
     ]
     + [
@@ -261,8 +260,6 @@ async def test_unicode_query_boundary(recorded):
         ("get_screenshot", "browser_rendering"),
         ("get_screenshot", "warm_start"),
         ("get_screenshot", "block_resources"),
-        ("get_screenshot", "action"),
-        ("scrape_json", "action"),
     ],
 )
 async def test_undocumented_controls_are_not_accepted(recorded, method, option):

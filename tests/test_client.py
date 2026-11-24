@@ -107,10 +107,8 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "max_retries": 0,
     }
     loading = {"browser_rendering": False, "warm_start": True, "block_resources": True}
-    await client.scrape_html(
-        URL, **shared, **loading, action=" analytics ", screenshot="1920x1080-75"
-    )
-    await client.scrape_markdown(URL, **shared, **loading, action="analytics")
+    await client.scrape_html(URL, **shared, **loading, screenshot="1920x1080-75")
+    await client.scrape_markdown(URL, **shared, **loading)
     await client.get_screenshot(URL, **shared)
     await client.scrape_json(
         URL, "Extract prices", **shared, **loading, html=False, screenshot=True
@@ -135,7 +133,6 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "warmStart",
         "blockResources",
         "waitForSelector",
-        "action",
         "geoCode",
         "saveResult",
         "maxAge",
@@ -149,7 +146,6 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "markdown": "false",
         **wire_loading,
         "browserRendering": "true",
-        "action": "analytics",
         **wire_shared,
         "screenshot": "1920x1080-75",
     }
@@ -159,7 +155,6 @@ async def test_page_options_map_to_documented_fields_in_order(recorded):
         "html": "false",
         "screenshot": "false",
         **wire_loading,
-        "action": "analytics",
         **wire_shared,
     }
     assert list(screenshot)[:5] == ["url", "screenshot", "html", "markdown", "browserRendering"]
